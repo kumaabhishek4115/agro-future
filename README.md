@@ -3,6 +3,12 @@ Using sustainability practices in agriculture
 
 ---
 
+## Product Documentation
+
+- [Farmer Carbon Credit Marketplace PRD](docs/carbon-credit-prd.md)
+
+---
+
 # Carbon Trading and Agriculture
 
 ## Table of Contents
