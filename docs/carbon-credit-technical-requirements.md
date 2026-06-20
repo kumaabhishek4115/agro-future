@@ -50,38 +50,38 @@ Access control must be role-based, deny-by-default, and enforce tenant/data owne
 
 ## 5. Functional Technical Requirements
 
-## 5.1 Supplier Onboarding & Intake
+### 5.1 Supplier Onboarding & Intake
 - Supplier account registration with email verification.
 - Profile fields: geography, land size, crop/livestock type, ownership/lease status, payout details.
 - Project submission form with draft + submitted states.
 - Document upload support for registry evidence, MRV records, land ownership proofs.
 - Validation rules for required fields before submission.
 
-## 5.2 Eligibility & Operations Review
+### 5.2 Eligibility & Operations Review
 - Review queue with statuses: `new`, `in_review`, `needs_info`, `approved`, `rejected`.
 - Scoring form for quality, readiness, and risk dimensions.
 - Decision reason logging (required on reject/needs-info).
 - Full status timeline with actor + timestamp.
 
-## 5.3 Offer & Contract Management
+### 5.3 Offer & Contract Management
 - Operator can create versioned offers per project.
 - Offer includes pricing model, fees, payout schedule, delivery expectations, liability clauses.
 - Supplier can accept/reject/counter (counter optional for v1).
 - Contract record generated upon acceptance; immutable signed snapshot stored.
 
-## 5.4 Inventory & Listing
+### 5.4 Inventory & Listing
 - Inventory unit model supports issued and forward supply.
 - Inventory states: `reserved`, `available`, `sold`, `retired`.
 - Listing management: create, publish, unpublish, set price/volume constraints.
 - Prevent overselling with transactional inventory locking.
 
-## 5.5 Buyer Commerce
+### 5.5 Buyer Commerce
 - Search + filter by geography, methodology, registry, vintage, co-benefits, price.
 - Listing detail page with quality metadata and supporting evidence.
 - Checkout flow for direct purchase and quote-request flow.
 - Order lifecycle statuses: `initiated`, `pending_payment`, `paid`, `transferred`, `retired`.
 
-## 5.6 Transfer, Retirement, Reporting
+### 5.6 Transfer, Retirement, Reporting
 - Retirement event record with quantity, date, beneficiary, and certificate reference.
 - Downloadable retirement confirmation for buyers.
 - Supplier and buyer transaction history endpoints.
