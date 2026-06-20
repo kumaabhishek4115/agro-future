@@ -123,8 +123,8 @@ Access control must be role-based, deny-by-default, and enforce tenant/data owne
   - Encryption in transit (TLS) and at rest for sensitive files/data.
   - Immutable audit trail for critical actions.
 - **Performance**
-  - Catalog search API p95 <= 800ms for a dataset of up to 50,000 active listings.
-  - Standard read endpoints p95 <= 500ms at up to 100 requests/second and 500 concurrent users.
+  - Catalog search API p95 <= 300ms for a dataset of up to 50,000 active listings.
+  - Standard read endpoints p95 <= 500ms at up to 250 requests/second and 500 concurrent users.
 - **Reliability**
   - Target API availability >= 99.5% monthly for MVP.
   - Retries + dead-letter handling for async jobs.
