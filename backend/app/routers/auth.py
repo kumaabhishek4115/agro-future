@@ -73,9 +73,20 @@ async def register(
             detail="An account with that email already exists",
         )
 
+    if body.mobile_number:
+        existing_mobile = await db.execute(
+            select(User).where(User.mobile_number == body.mobile_number)
+        )
+        if existing_mobile.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An account with that mobile number already exists",
+            )
+
     verification_token = str(uuid.uuid4())
     user = User(
         email=body.email.lower(),
+        mobile_number=body.mobile_number,
         password_hash=hash_password(body.password),
         role=RoleEnum.supplier,
         status=UserStatusEnum.pending_verification,

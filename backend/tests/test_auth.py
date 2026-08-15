@@ -275,3 +275,63 @@ async def test_login_success_after_verification(client):
     """Full happy-path: register → verify → login returns a bearer token."""
     token = await _register_and_verify(client)
     assert token  # non-empty JWT string
+
+
+# ---------------------------------------------------------------------------
+# AC: Supplier can also register via mobile number
+# ---------------------------------------------------------------------------
+
+
+async def test_register_with_mobile_number_succeeds(client):
+    """Registration succeeds when an optional mobile number is provided."""
+    payload = {
+        "email": "mobile_supplier@test.com",
+        "password": "TestPass123!",
+        "mobile_number": "+919876543210",
+    }
+    r = await client.post(f"{BASE}/auth/register", json=payload)
+    assert r.status_code == 201
+    data = r.json()
+    assert "user_id" in data
+    assert "Registration successful" in data["message"]
+
+
+async def test_register_without_mobile_number_still_succeeds(client):
+    """Registration without a mobile number continues to work (backwards compatible)."""
+    payload = {"email": "nomobile@test.com", "password": "TestPass123!"}
+    r = await client.post(f"{BASE}/auth/register", json=payload)
+    assert r.status_code == 201
+
+
+async def test_register_duplicate_mobile_returns_409(client):
+    """Registering a second account with the same mobile number returns 409."""
+    mobile = "+919876543211"
+    r1 = await client.post(
+        f"{BASE}/auth/register",
+        json={"email": "first@test.com", "password": "TestPass123!", "mobile_number": mobile},
+    )
+    assert r1.status_code == 201
+    r = await client.post(
+        f"{BASE}/auth/register",
+        json={"email": "second@test.com", "password": "TestPass123!", "mobile_number": mobile},
+    )
+    assert r.status_code == 409
+    assert "mobile" in r.json()["detail"].lower()
+
+
+async def test_register_invalid_mobile_returns_422(client):
+    """A mobile number that is not in E.164 format (too short) is rejected with 422."""
+    r = await client.post(
+        f"{BASE}/auth/register",
+        json={"email": "bad_mobile@test.com", "password": "TestPass123!", "mobile_number": "123"},
+    )
+    assert r.status_code == 422
+
+
+async def test_register_mobile_number_without_plus_is_accepted(client):
+    """A mobile number without a leading '+' but with 7-15 digits is accepted."""
+    r = await client.post(
+        f"{BASE}/auth/register",
+        json={"email": "noplus@test.com", "password": "TestPass123!", "mobile_number": "9876543210"},
+    )
+    assert r.status_code == 201
