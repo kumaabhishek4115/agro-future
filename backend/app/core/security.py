@@ -7,11 +7,12 @@ TRD §4, §8 – authentication required for all non-public endpoints;
 from __future__ import annotations
 
 import base64
-import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from jose import jwt
 from passlib.context import CryptContext
 
@@ -21,7 +22,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 _PAYOUT_DETAILS_PREFIX = "enc::"
 _payout_fernet = Fernet(
     base64.urlsafe_b64encode(
-        hashlib.sha256(settings.PAYOUT_DETAILS_SECRET.encode("utf-8")).digest()
+        HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=b"agro-future-supplier-payout-details",
+        ).derive(settings.PAYOUT_DETAILS_SECRET.encode("utf-8"))
     )
 )
 
