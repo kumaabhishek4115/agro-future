@@ -25,7 +25,7 @@ _payout_fernet = Fernet(
         HKDF(
             algorithm=hashes.SHA256(),
             length=32,
-            salt=None,
+            salt=b"agro-future-payout-hkdf-salt",
             info=b"agro-future-supplier-payout-details",
         ).derive(settings.PAYOUT_DETAILS_SECRET.encode("utf-8"))
     )
