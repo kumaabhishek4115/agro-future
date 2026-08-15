@@ -7,6 +7,7 @@ Using sustainability practices in agriculture
 
 - [Farmer Carbon Credit Marketplace PRD](docs/carbon-credit-prd.md)
 - [Farmer Carbon Credit Marketplace Technical Requirements](docs/carbon-credit-technical-requirements.md)
+- [Farmer Portal Backlog](docs/farmer-portal-backlog.md)
 
 ---
 
