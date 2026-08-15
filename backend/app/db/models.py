@@ -103,6 +103,7 @@ class User(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    mobile_number: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[RoleEnum] = mapped_column(
         Enum(RoleEnum, name="role_enum"), nullable=False, default=RoleEnum.supplier

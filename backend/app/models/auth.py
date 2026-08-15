@@ -5,18 +5,44 @@ TRD sections 5.1, 7.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, EmailStr, Field
+import re
+from typing import Optional
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8, description="Minimum 8 characters")
+    mobile_number: Optional[str] = Field(
+        None,
+        description="Optional mobile number in E.164 format, e.g. +919876543210",
+    )
+
+    @field_validator("mobile_number")
+    @classmethod
+    def validate_mobile_number(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        # Strip whitespace only; do not normalise dashes/parentheses so that
+        # callers are clear that strict E.164-style digits are expected.
+        cleaned = re.sub(r"\s+", "", v)
+        # Accept an optional leading '+' followed by 7–15 digits (E.164 range).
+        # Numbers without a leading '+' are also accepted (e.g. local formats).
+        if not re.fullmatch(r"\+?[0-9]{7,15}", cleaned):
+            raise ValueError(
+                "mobile_number must be 7–15 digits with an optional leading '+' "
+                "(e.g. +919876543210 or 9876543210). "
+                "Spaces are ignored; dashes and parentheses are not supported."
+            )
+        return cleaned
 
     model_config = {
         "json_schema_extra": {
             "example": {
                 "email": "farmer@example.com",
                 "password": "StrongPassw0rd!",
+                "mobile_number": "+919876543210",
             }
         }
     }
