@@ -2,6 +2,7 @@
 POST /api/v1/auth/register   – Supplier account registration.
 POST /api/v1/auth/login      – Return a signed JWT.
 POST /api/v1/auth/verify-email – Activate account from email token.
+POST /api/v1/auth/logout     – Invalidate the current session token.
 
 TRD sections 4, 5.1, 7, 8.
 """
@@ -12,12 +13,15 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import create_access_token, hash_password, verify_password
-from app.db.models import RoleEnum, User, UserStatusEnum
+from app.core.config import settings
+from app.core.dependencies import CurrentUser, bearer_scheme
+from app.core.security import create_access_token, hash_password, verify_password, decode_access_token
+from app.db.models import BlacklistedToken, RoleEnum, User, UserStatusEnum
 from app.db.session import get_db
 from app.models.auth import (
     LoginRequest,
@@ -193,3 +197,49 @@ async def verify_email(
     await db.commit()
 
     return MessageResponse(message="Email verified successfully. You may now log in.")
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/auth/logout
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/logout",
+    response_model=MessageResponse,
+    summary="Invalidate the current session token",
+    responses={
+        401: {"model": ErrorResponse, "description": "Missing or invalid token"},
+    },
+)
+async def logout(
+    current_user: CurrentUser,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> MessageResponse:
+    """
+    Invalidate the caller's JWT by adding it to the server-side blacklist.
+
+    After this call the token is rejected by every protected endpoint, even if
+    it has not yet reached its natural expiry time.
+
+    TRD §8 – session tokens must be invalidated on logout.
+    """
+    raw_token = credentials.credentials
+    # Best-effort: extract expiry from the decoded token for future cleanup.
+    expires_at = None
+    try:
+        payload = decode_access_token(raw_token)
+        exp = payload.get("exp")
+        if exp is not None:
+            expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
+    except Exception:
+        pass  # Already validated by CurrentUser; ignore decode errors here.
+
+    db.add(BlacklistedToken(token=raw_token, expires_at=expires_at))
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        # Token already blacklisted – idempotent logout is fine.
+
+    return MessageResponse(message="Logged out successfully")

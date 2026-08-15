@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import decode_access_token
-from app.db.models import RoleEnum, User
+from app.db.models import BlacklistedToken, RoleEnum, User
 from app.db.session import get_db
 
 bearer_scheme = HTTPBearer(
@@ -32,7 +32,7 @@ async def _get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
-    """Validate JWT and return the corresponding User row from PostgreSQL."""
+    """Validate JWT, reject blacklisted tokens, and return the User row."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired token",
@@ -45,6 +45,13 @@ async def _get_current_user(
             raise credentials_exception
         user_id = uuid.UUID(user_id_str)
     except Exception:
+        raise credentials_exception
+
+    # Reject tokens that have been explicitly invalidated via logout
+    blacklisted = await db.execute(
+        select(BlacklistedToken).where(BlacklistedToken.token == credentials.credentials)
+    )
+    if blacklisted.scalar_one_or_none() is not None:
         raise credentials_exception
 
     result = await db.execute(select(User).where(User.id == user_id))

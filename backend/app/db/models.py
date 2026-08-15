@@ -292,3 +292,36 @@ class ProjectDocument(Base):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<ProjectDocument id={self.id} project_id={self.project_id} type={self.doc_type}>"
+
+
+# ---------------------------------------------------------------------------
+# token_blacklist
+# ---------------------------------------------------------------------------
+
+class BlacklistedToken(Base):
+    """
+    Server-side JWT invalidation table used by the logout endpoint.
+
+    When a user logs out, their current JWT is stored here so that
+    `_get_current_user` can reject it even before it expires naturally.
+
+    TRD §8 – session tokens must be invalidated on logout.
+    """
+
+    __tablename__ = "token_blacklist"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    # Storing the full token string allows O(1) look-up with an index.
+    token: Mapped[str] = mapped_column(String(2048), nullable=False, unique=True, index=True)
+    # Preserving the original expiry so stale rows can be pruned later.
+    expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    blacklisted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<BlacklistedToken id={self.id} blacklisted_at={self.blacklisted_at}>"
