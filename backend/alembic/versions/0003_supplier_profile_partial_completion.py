@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0003_supplier_profile_partial_completion"
+revision = "0003_supplier_partial"
 down_revision = "0002_project_intake"
 branch_labels = None
 depends_on = None

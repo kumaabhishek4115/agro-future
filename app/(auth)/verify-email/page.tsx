@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ApiError, apiPost } from '@/lib/apiClient';
 
@@ -10,12 +10,20 @@ export default function VerifyEmailPage() {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Prefill from the ?token= link sent in the verification email.
+  useEffect(() => {
+    const fromLink = new URLSearchParams(window.location.search).get('token');
+    if (fromLink) setToken(fromLink);
+  }, []);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const data = await apiPost<{ message: string }>('/auth/verify-email', { token });
+      const data = await apiPost<{ message: string }>('/auth/verify-email', {
+        token: token.trim(),
+      });
       setSuccess(data.message);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Network error – please try again');

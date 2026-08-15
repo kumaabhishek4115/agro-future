@@ -14,7 +14,7 @@ from alembic import op
 from sqlalchemy.dialects.postgresql import UUID
 
 revision = "0004_token_blacklist"
-down_revision = "0003_supplier_profile_partial_completion"
+down_revision = "0003_supplier_partial"
 branch_labels = None
 depends_on = None
 

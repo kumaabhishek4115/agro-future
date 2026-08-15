@@ -32,10 +32,22 @@ function extractDetail(body: unknown, fallback: string): string {
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, { method: 'POST', body: JSON.stringify(body) });
+}
+
+export async function apiGet<T>(path: string): Promise<T> {
+  return request<T>(path, { method: 'GET' });
+}
+
+async function request<T>(path: string, init: RequestInit): Promise<T> {
+  const token = typeof window === 'undefined' ? null : localStorage.getItem('token');
+
   const res = await fetch(`/api/v1${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
   });
 
   const json = await res.json().catch(() => null);
