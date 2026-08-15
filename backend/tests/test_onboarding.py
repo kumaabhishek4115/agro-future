@@ -221,6 +221,7 @@ async def test_create_profile_persists_mapping_and_encrypts_payout_details(
     assert profile.crop_or_livestock_type == VALID_PROFILE["crop_or_livestock_type"]
     assert profile.ownership_status.value == VALID_PROFILE["ownership_status"]
     assert profile.payout_details != VALID_PROFILE["payout_details"]
+    assert profile.payout_details.startswith("enc::")
     assert decrypt_payout_details(profile.payout_details) == VALID_PROFILE["payout_details"]
 
 

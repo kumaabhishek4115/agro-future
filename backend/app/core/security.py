@@ -18,6 +18,7 @@ from passlib.context import CryptContext
 from app.core.config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+_PAYOUT_DETAILS_PREFIX = "enc::"
 _payout_fernet = Fernet(
     base64.urlsafe_b64encode(
         hashlib.sha256(settings.PAYOUT_DETAILS_SECRET.encode("utf-8")).digest()
@@ -50,13 +51,17 @@ def decode_access_token(token: str) -> dict[str, Any]:
 def encrypt_payout_details(plain: str | None) -> str | None:
     if plain is None:
         return None
-    return _payout_fernet.encrypt(plain.encode("utf-8")).decode("utf-8")
+    token = _payout_fernet.encrypt(plain.encode("utf-8")).decode("utf-8")
+    return f"{_PAYOUT_DETAILS_PREFIX}{token}"
 
 
 def decrypt_payout_details(encrypted: str | None) -> str | None:
     if encrypted is None:
         return None
-    try:
-        return _payout_fernet.decrypt(encrypted.encode("utf-8")).decode("utf-8")
-    except InvalidToken:
+    if not encrypted.startswith(_PAYOUT_DETAILS_PREFIX):
         return encrypted
+    token = encrypted.removeprefix(_PAYOUT_DETAILS_PREFIX)
+    try:
+        return _payout_fernet.decrypt(token.encode("utf-8")).decode("utf-8")
+    except InvalidToken as exc:
+        raise ValueError("Invalid encrypted payout details") from exc
