@@ -24,7 +24,7 @@ from app.main import app
 
 
 @pytest_asyncio.fixture
-async def client() -> AsyncClient:
+async def session_factory() -> async_sessionmaker[AsyncSession]:
     """
     Spin up a fresh in-memory SQLite database for each test, override the
     `get_db` dependency so every request in that test hits the same DB, then
@@ -49,6 +49,13 @@ async def client() -> AsyncClient:
         expire_on_commit=False,
     )
 
+    yield session_factory
+
+    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def client(session_factory: async_sessionmaker[AsyncSession]) -> AsyncClient:
     async def _override_get_db():
         async with session_factory() as session:
             yield session
@@ -62,4 +69,9 @@ async def client() -> AsyncClient:
 
     # Teardown: restore overrides and close engine
     app.dependency_overrides.pop(get_db, None)
-    await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def db_session(session_factory: async_sessionmaker[AsyncSession]) -> AsyncSession:
+    async with session_factory() as session:
+        yield session

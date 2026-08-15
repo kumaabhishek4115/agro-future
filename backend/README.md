@@ -27,7 +27,7 @@ pip install -r requirements-dev.txt   # test dependencies
 
 ```bash
 cp .env.example .env
-# Edit .env with your PostgreSQL credentials
+# Edit .env with your PostgreSQL credentials and secrets
 ```
 
 ### 3. Create the database

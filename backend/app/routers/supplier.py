@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import SupplierUser
+from app.core.security import decrypt_payout_details, encrypt_payout_details
 from app.db.models import OwnershipStatusEnum, SupplierProfile, User
 from app.db.session import get_db
 from app.models.common import ErrorResponse
@@ -61,13 +62,14 @@ def _is_profile_complete(profile: SupplierProfile) -> bool:
 
 
 def _profile_to_response(profile: SupplierProfile) -> SupplierProfileResponse:
+    payout_details = decrypt_payout_details(profile.payout_details)
     return SupplierProfileResponse(
         user_id=str(profile.user_id),
         geography=profile.geography,
         land_size_hectares=profile.land_size_hectares,
         crop_or_livestock_type=profile.crop_or_livestock_type,
         ownership_status=profile.ownership_status.value if profile.ownership_status else None,
-        payout_details_masked=_mask_payout_details(profile.payout_details),
+        payout_details_masked=_mask_payout_details(payout_details),
         is_complete=profile.is_complete,
         completion_percentage=_completion_percentage(profile),
         created_at=profile.created_at.isoformat(),
@@ -156,7 +158,7 @@ async def upsert_profile(
                 if body.ownership_status
                 else None
             ),
-            payout_details=body.payout_details,
+            payout_details=encrypt_payout_details(body.payout_details),
             created_at=now,
             updated_at=now,
         )
@@ -176,7 +178,7 @@ async def upsert_profile(
                 OwnershipStatusEnum(ownership_status.value) if ownership_status else None
             )
         if "payout_details" in payload:
-            profile.payout_details = payload["payout_details"]
+            profile.payout_details = encrypt_payout_details(payload["payout_details"])
 
         profile.is_complete = _is_profile_complete(profile)
         profile.updated_at = now

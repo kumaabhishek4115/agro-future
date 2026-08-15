@@ -19,6 +19,10 @@ TRD acceptance criteria:
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
+
+from app.core.security import decrypt_payout_details
+from app.db.models import SupplierProfile
 
 pytestmark = pytest.mark.asyncio
 
@@ -199,6 +203,27 @@ async def test_create_profile_success(client):
     assert data["payout_details_masked"].startswith("****")
 
 
+async def test_create_profile_persists_mapping_and_encrypts_payout_details(
+    client, db_session
+):
+    token = await _register_and_verify(client)
+    r = await client.post(
+        f"{BASE}/supplier/profile",
+        json=VALID_PROFILE,
+        headers=auth(token),
+    )
+    assert r.status_code == 200, r.text
+
+    result = await db_session.execute(select(SupplierProfile))
+    profile = result.scalar_one()
+    assert profile.geography == VALID_PROFILE["geography"]
+    assert profile.land_size_hectares == VALID_PROFILE["land_size_hectares"]
+    assert profile.crop_or_livestock_type == VALID_PROFILE["crop_or_livestock_type"]
+    assert profile.ownership_status.value == VALID_PROFILE["ownership_status"]
+    assert profile.payout_details != VALID_PROFILE["payout_details"]
+    assert decrypt_payout_details(profile.payout_details) == VALID_PROFILE["payout_details"]
+
+
 async def test_create_profile_partial_save_incomplete(client):
     token = await _register_and_verify(client)
     incomplete = {k: v for k, v in VALID_PROFILE.items() if k not in {"geography", "payout_details"}}
@@ -279,7 +304,28 @@ async def test_update_profile_partial_does_not_reset_unedited_fields(client):
     data = r2.json()
     assert data["geography"] == "Uganda"
     assert data["crop_or_livestock_type"] == VALID_PROFILE["crop_or_livestock_type"]
+    assert data["payout_details_masked"].startswith("****")
+    assert data["is_complete"] is True
     assert data["completion_percentage"] == 100
+
+
+async def test_get_profile_supports_legacy_plaintext_payout_details(client, db_session):
+    token = await _register_and_verify(client)
+    r = await client.post(
+        f"{BASE}/supplier/profile",
+        json=VALID_PROFILE,
+        headers=auth(token),
+    )
+    assert r.status_code == 200, r.text
+
+    result = await db_session.execute(select(SupplierProfile))
+    profile = result.scalar_one()
+    profile.payout_details = VALID_PROFILE["payout_details"]
+    await db_session.commit()
+
+    fetched = await client.get(f"{BASE}/supplier/profile", headers=auth(token))
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["payout_details_masked"] == "****7890"
 
 
 async def test_profile_invalid_ownership_status(client):
