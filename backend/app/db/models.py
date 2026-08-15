@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 from sqlalchemy import (
     Boolean,
@@ -87,14 +88,14 @@ class User(Base):
         Enum(RoleEnum, name="role_enum"), nullable=False, default=RoleEnum.supplier
     )
     # org_id is nullable for individual farmers not belonging to a cooperative org
-    org_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    org_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     status: Mapped[UserStatusEnum] = mapped_column(
         Enum(UserStatusEnum, name="user_status_enum"),
         nullable=False,
         default=UserStatusEnum.pending_verification,
     )
-    email_verification_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    email_verified_at: Mapped[datetime | None] = mapped_column(
+    email_verification_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    email_verified_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -105,7 +106,7 @@ class User(Base):
     )
 
     # Relationships
-    supplier_profile: Mapped[SupplierProfile | None] = relationship(
+    supplier_profile: Mapped[Optional["SupplierProfile"]] = relationship(
         "SupplierProfile", back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
 

@@ -2,10 +2,15 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { ApiError, apiPost } from '@/lib/apiClient';
+
+type RegisterResponse = {
+  message: string;
+  user_id: string;
+  email_verification_token: string;
+};
 
 export default function RegisterPage() {
-  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -17,24 +22,10 @@ export default function RegisterPage() {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('/api/v1/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setError(json.error ?? 'Registration failed');
-        return;
-      }
-      setSuccess(
-        json.data.message +
-          ' (Dev token: ' +
-          json.data.emailVerificationToken +
-          ')',
-      );
-    } catch {
-      setError('Network error – please try again');
+      const data = await apiPost<RegisterResponse>('/auth/register', { email, password });
+      setSuccess(`${data.message} (Dev token: ${data.email_verification_token})`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Network error – please try again');
     } finally {
       setLoading(false);
     }

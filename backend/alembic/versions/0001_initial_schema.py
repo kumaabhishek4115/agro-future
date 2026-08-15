@@ -23,11 +23,10 @@ from sqlalchemy.dialects import postgresql
 # ---------------------------------------------------------------------------
 # Revision identifiers
 # ---------------------------------------------------------------------------
-revision: str = "0001_initial_schema"
-down_revision: str | None = None
-branch_labels: str | None = None
-depends_on: str | None = None
-
+revision = "0001_initial_schema"
+down_revision = None
+branch_labels = None
+depends_on = None
 
 # ---------------------------------------------------------------------------
 # Helpers

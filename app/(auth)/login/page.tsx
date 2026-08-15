@@ -3,6 +3,15 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { ApiError, apiPost } from '@/lib/apiClient';
+
+type TokenResponse = {
+  access_token: string;
+  token_type: string;
+  user_id: string;
+  email: string;
+  role: string;
+};
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,22 +25,16 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setError(json.error ?? 'Login failed');
-        return;
-      }
+      const data = await apiPost<TokenResponse>('/auth/login', { email, password });
       // Store JWT in localStorage for MVP (use httpOnly cookies in production)
-      localStorage.setItem('token', json.data.token);
-      localStorage.setItem('user', JSON.stringify(json.data.user));
+      localStorage.setItem('token', data.access_token);
+      localStorage.setItem(
+        'user',
+        JSON.stringify({ id: data.user_id, email: data.email, role: data.role }),
+      );
       router.push('/supplier/dashboard');
-    } catch {
-      setError('Network error – please try again');
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Network error – please try again');
     } finally {
       setLoading(false);
     }

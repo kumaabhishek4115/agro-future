@@ -23,6 +23,18 @@ class SupplierProfileRequest(BaseModel):
     ownership_status: OwnershipStatus
     payout_details: str = Field(..., min_length=1, description="Bank / payment details")
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "geography": "Punjab, India",
+                "land_size_hectares": 12.5,
+                "crop_or_livestock_type": "Rice",
+                "ownership_status": "owned",
+                "payout_details": "HDFC Bank ****1234",
+            }
+        }
+    }
+
 
 class SupplierProfileResponse(BaseModel):
     user_id: str
@@ -35,4 +47,19 @@ class SupplierProfileResponse(BaseModel):
     created_at: str
     updated_at: str
 
-    model_config = {"from_attributes": True}
+    model_config = {
+        "from_attributes": True,
+        "json_schema_extra": {
+            "example": {
+                "user_id": "3f1b1c8e-9f2a-4c1d-8b7e-0d5a2f6c9a11",
+                "geography": "Punjab, India",
+                "land_size_hectares": 12.5,
+                "crop_or_livestock_type": "Rice",
+                "ownership_status": "owned",
+                "payout_details": "HDFC Bank ****1234",
+                "is_complete": True,
+                "created_at": "2026-08-15T10:00:00+00:00",
+                "updated_at": "2026-08-15T10:00:00+00:00",
+            }
+        },
+    }

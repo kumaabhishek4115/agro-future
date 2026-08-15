@@ -24,9 +24,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import SupplierUser
 from app.db.models import OwnershipStatusEnum, SupplierProfile, User
 from app.db.session import get_db
+from app.models.common import ErrorResponse
 from app.models.supplier import SupplierProfileRequest, SupplierProfileResponse
 
 router = APIRouter(prefix="/supplier", tags=["supplier"])
+
+PROTECTED_RESPONSES = {
+    401: {"model": ErrorResponse, "description": "Missing, invalid or expired bearer token"},
+    403: {"model": ErrorResponse, "description": "Supplier role required"},
+}
 
 
 def _profile_to_response(profile: SupplierProfile) -> SupplierProfileResponse:
@@ -51,6 +57,10 @@ def _profile_to_response(profile: SupplierProfile) -> SupplierProfileResponse:
     "/profile",
     response_model=SupplierProfileResponse,
     summary="Fetch the authenticated supplier's profile",
+    responses={
+        **PROTECTED_RESPONSES,
+        404: {"model": ErrorResponse, "description": "Profile not yet created"},
+    },
 )
 async def get_profile(
     current_user: SupplierUser,
@@ -83,6 +93,10 @@ async def get_profile(
     "/profile",
     response_model=SupplierProfileResponse,
     summary="Create or update the supplier profile",
+    responses={
+        **PROTECTED_RESPONSES,
+        422: {"model": ErrorResponse, "description": "Validation error"},
+    },
 )
 async def upsert_profile(
     body: SupplierProfileRequest,

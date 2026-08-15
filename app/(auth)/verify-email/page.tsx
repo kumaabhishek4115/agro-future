@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { ApiError, apiPost } from '@/lib/apiClient';
 
 export default function VerifyEmailPage() {
   const [token, setToken] = useState('');
@@ -14,19 +15,10 @@ export default function VerifyEmailPage() {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('/api/v1/auth/verify-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setError(json.error ?? 'Verification failed');
-        return;
-      }
-      setSuccess(json.data.message);
-    } catch {
-      setError('Network error – please try again');
+      const data = await apiPost<{ message: string }>('/auth/verify-email', { token });
+      setSuccess(data.message);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Network error – please try again');
     } finally {
       setLoading(false);
     }

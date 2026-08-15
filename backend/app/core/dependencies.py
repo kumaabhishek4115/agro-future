@@ -21,7 +21,11 @@ from app.core.security import decode_access_token
 from app.db.models import RoleEnum, User
 from app.db.session import get_db
 
-bearer_scheme = HTTPBearer(auto_error=True)
+bearer_scheme = HTTPBearer(
+    auto_error=True,
+    scheme_name="BearerAuth",
+    description="Paste the `access_token` returned by POST /api/v1/auth/login",
+)
 
 
 async def _get_current_user(

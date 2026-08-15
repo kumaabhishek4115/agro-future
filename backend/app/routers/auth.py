@@ -27,6 +27,7 @@ from app.models.auth import (
     TokenResponse,
     VerifyEmailRequest,
 )
+from app.models.common import ErrorResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -40,6 +41,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
     response_model=RegisterResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Register a new supplier account",
+    responses={
+        409: {"model": ErrorResponse, "description": "Email already registered"},
+        422: {"model": ErrorResponse, "description": "Validation error"},
+    },
 )
 async def register(
     body: RegisterRequest,
@@ -101,6 +106,10 @@ async def register(
     "/login",
     response_model=TokenResponse,
     summary="Log in and receive a bearer token",
+    responses={
+        401: {"model": ErrorResponse, "description": "Invalid email or password"},
+        403: {"model": ErrorResponse, "description": "Email not verified or account suspended"},
+    },
 )
 async def login(
     body: LoginRequest,
@@ -151,6 +160,9 @@ async def login(
     "/verify-email",
     response_model=MessageResponse,
     summary="Verify email address and activate the account",
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid or expired verification token"},
+    },
 )
 async def verify_email(
     body: VerifyEmailRequest,
