@@ -181,8 +181,7 @@ async def test_invalid_bearer_token_returns_401(client):
 
 async def test_login_returns_supplier_role(client):
     """A supplier account's token carries role='supplier'."""
-    token = await _register_and_verify(client)
-    # Decode the token via the protected endpoint that echoes the role
+    await _register_and_verify(client)
     r = await client.post(f"{BASE}/auth/login", json=VALID_USER)
     assert r.json()["role"] == "supplier"
 

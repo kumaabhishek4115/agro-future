@@ -27,7 +27,6 @@ def upgrade() -> None:
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("blacklisted_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("token", name="uq_token_blacklist_token"),
     )
     op.create_index("ix_token_blacklist_token", "token_blacklist", ["token"], unique=True)
 
