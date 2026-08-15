@@ -16,6 +16,13 @@ EXPECTED_OPERATIONS = {
     ("/api/v1/auth/verify-email", "post"),
     ("/api/v1/supplier/profile", "get"),
     ("/api/v1/supplier/profile", "post"),
+    ("/api/v1/projects", "post"),
+    ("/api/v1/projects", "get"),
+    ("/api/v1/projects/{project_id}", "get"),
+    ("/api/v1/projects/{project_id}", "patch"),
+    ("/api/v1/projects/{project_id}/submit", "post"),
+    ("/api/v1/projects/{project_id}/documents", "post"),
+    ("/api/v1/projects/{project_id}/documents", "get"),
 }
 
 

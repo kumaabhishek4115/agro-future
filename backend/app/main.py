@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.models.common import HealthResponse
-from app.routers import auth, supplier
+from app.routers import auth, supplier, project
 
 TAGS_METADATA = [
     {
@@ -30,6 +30,14 @@ TAGS_METADATA = [
             "Farm profile management. Protected: requires a bearer token "
             "issued by `POST /api/v1/auth/login` with role `supplier` "
             "(TRD sections 5.1, 6, 8)."
+        ),
+    },
+    {
+        "name": "projects",
+        "description": (
+            "Carbon credit project management (Epic 2). "
+            "Create, update and submit projects; attach supporting documents. "
+            "Protected: requires role `supplier` (TRD sections 5.1, 5.2, 6, 8)."
         ),
     },
 ]
@@ -89,6 +97,7 @@ API_PREFIX = "/api/v1"
 
 app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(supplier.router, prefix=API_PREFIX)
+app.include_router(project.router, prefix=API_PREFIX)
 
 
 @app.get(
