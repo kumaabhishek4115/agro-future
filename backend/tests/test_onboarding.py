@@ -194,17 +194,26 @@ async def test_create_profile_success(client):
     data = r.json()
     assert data["geography"] == "Kenya"
     assert data["is_complete"] is True
+    assert data["completion_percentage"] == 100
+    assert "payout_details" not in data
+    assert data["payout_details_masked"].startswith("****")
 
 
-async def test_create_profile_missing_field(client):
+async def test_create_profile_partial_save_incomplete(client):
     token = await _register_and_verify(client)
-    incomplete = {k: v for k, v in VALID_PROFILE.items() if k != "geography"}
+    incomplete = {k: v for k, v in VALID_PROFILE.items() if k not in {"geography", "payout_details"}}
     r = await client.post(
         f"{BASE}/supplier/profile",
         json=incomplete,
         headers=auth(token),
     )
-    assert r.status_code == 422
+    assert r.status_code == 200
+    data = r.json()
+    assert data["is_complete"] is False
+    # 3 of 5 required fields provided => 60%
+    assert data["completion_percentage"] == 60
+    assert data["geography"] is None
+    assert data["payout_details_masked"] is None
 
 
 async def test_create_profile_invalid_land_size(client):
@@ -250,6 +259,27 @@ async def test_update_profile_preserves_created_at(client):
     assert r2.status_code == 200
     assert r2.json()["geography"] == "Tanzania"
     assert r2.json()["created_at"] == created_at  # unchanged
+
+
+async def test_update_profile_partial_does_not_reset_unedited_fields(client):
+    token = await _register_and_verify(client)
+    r1 = await client.post(
+        f"{BASE}/supplier/profile",
+        json=VALID_PROFILE,
+        headers=auth(token),
+    )
+    assert r1.status_code == 200, r1.text
+
+    r2 = await client.post(
+        f"{BASE}/supplier/profile",
+        json={"geography": "Uganda"},
+        headers=auth(token),
+    )
+    assert r2.status_code == 200
+    data = r2.json()
+    assert data["geography"] == "Uganda"
+    assert data["crop_or_livestock_type"] == VALID_PROFILE["crop_or_livestock_type"]
+    assert data["completion_percentage"] == 100
 
 
 async def test_profile_invalid_ownership_status(client):

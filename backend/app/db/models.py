@@ -166,16 +166,16 @@ class SupplierProfile(Base):
     )
 
     # Farm metadata (TRD §5.1)
-    geography: Mapped[str] = mapped_column(String(255), nullable=False)
-    land_size_hectares: Mapped[float] = mapped_column(Float, nullable=False)
-    crop_or_livestock_type: Mapped[str] = mapped_column(String(255), nullable=False)
-    ownership_status: Mapped[OwnershipStatusEnum] = mapped_column(
-        Enum(OwnershipStatusEnum, name="ownership_status_enum"), nullable=False
+    geography: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    land_size_hectares: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    crop_or_livestock_type: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    ownership_status: Mapped[Optional[OwnershipStatusEnum]] = mapped_column(
+        Enum(OwnershipStatusEnum, name="ownership_status_enum"), nullable=True
     )
 
     # Payout metadata – stored as an opaque string for MVP;
     # a production system would encrypt this field at rest (TRD §8).
-    payout_details: Mapped[str] = mapped_column(String(1000), nullable=False)
+    payout_details: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
 
     # Profile completeness flag – set to True once all required fields are saved
     is_complete: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -292,4 +292,3 @@ class ProjectDocument(Base):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<ProjectDocument id={self.id} project_id={self.project_id} type={self.doc_type}>"
-
