@@ -14,6 +14,8 @@ EXPECTED_OPERATIONS = {
     ("/api/v1/auth/register", "post"),
     ("/api/v1/auth/login", "post"),
     ("/api/v1/auth/verify-email", "post"),
+    ("/api/v1/auth/verify-mobile", "post"),
+    ("/api/v1/auth/resend-mobile-code", "post"),
     ("/api/v1/auth/logout", "post"),
     ("/api/v1/supplier/profile", "get"),
     ("/api/v1/supplier/profile", "post"),

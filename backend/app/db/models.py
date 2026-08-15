@@ -22,6 +22,7 @@ from typing import Optional
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum,
     Float,
@@ -98,11 +99,18 @@ class User(Base):
     """
 
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "email IS NOT NULL OR mobile_number IS NOT NULL",
+            name="ck_users_email_or_mobile",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    # Either email or mobile_number must be present; both are unique when set.
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True, index=True)
     mobile_number: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[RoleEnum] = mapped_column(
@@ -117,6 +125,13 @@ class User(Base):
     )
     email_verification_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     email_verified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    mobile_verification_code: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    mobile_code_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    mobile_verified_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(

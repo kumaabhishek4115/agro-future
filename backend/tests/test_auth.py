@@ -255,8 +255,8 @@ async def test_login_wrong_password_returns_401(client):
     )
     assert r.status_code == 401
     detail = r.json()["detail"]
-    # Message must not reveal whether the email or password was wrong
-    assert detail == "Invalid email or password"
+    # Message must not reveal whether the identifier or password was wrong
+    assert detail == "Invalid credentials"
     # Must not expose hashed password or any internal state
     assert "hash" not in detail.lower()
 
@@ -268,7 +268,7 @@ async def test_login_unknown_email_returns_401(client):
         json={"email": "nobody@example.com", "password": "SomePass123"},
     )
     assert r.status_code == 401
-    assert r.json()["detail"] == "Invalid email or password"
+    assert r.json()["detail"] == "Invalid credentials"
 
 
 async def test_login_success_after_verification(client):
@@ -335,3 +335,163 @@ async def test_register_mobile_number_without_plus_is_accepted(client):
         json={"email": "noplus@test.com", "password": "TestPass123!", "mobile_number": "9876543210"},
     )
     assert r.status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# AC: Supplier can log in with either email or mobile number
+# ---------------------------------------------------------------------------
+
+
+async def _register_and_verify_with_mobile(client, email: str, mobile: str) -> None:
+    r = await client.post(
+        f"{BASE}/auth/register",
+        json={"email": email, "password": "TestPass123!", "mobile_number": mobile},
+    )
+    assert r.status_code == 201
+    token = r.json()["email_verification_token"]
+    assert (await client.post(f"{BASE}/auth/verify-email", json={"token": token})).status_code == 200
+
+
+async def test_login_with_mobile_number_succeeds(client):
+    mobile = "+919812345678"
+    await _register_and_verify_with_mobile(client, "mobilelogin@test.com", mobile)
+
+    r = await client.post(
+        f"{BASE}/auth/login",
+        json={"mobile_number": mobile, "password": "TestPass123!"},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["access_token"]
+    assert data["mobile_number"] == mobile
+
+
+async def test_login_with_unknown_mobile_returns_401(client):
+    r = await client.post(
+        f"{BASE}/auth/login",
+        json={"mobile_number": "+919800000000", "password": "TestPass123!"},
+    )
+    assert r.status_code == 401
+    assert r.json()["detail"] == "Invalid credentials"
+
+
+async def test_login_requires_exactly_one_identifier(client):
+    """Neither identifier, or both at once, is rejected with 422."""
+    neither = await client.post(f"{BASE}/auth/login", json={"password": "TestPass123!"})
+    assert neither.status_code == 422
+
+    both = await client.post(
+        f"{BASE}/auth/login",
+        json={
+            "email": "someone@test.com",
+            "mobile_number": "+919812345678",
+            "password": "TestPass123!",
+        },
+    )
+    assert both.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# AC: Supplier can sign up with a mobile number and verify by SMS code
+# ---------------------------------------------------------------------------
+
+
+async def _register_mobile_only(client, mobile: str) -> str:
+    """Register with a mobile number only and return the dev SMS code."""
+    r = await client.post(
+        f"{BASE}/auth/register",
+        json={"mobile_number": mobile, "password": "TestPass123!"},
+    )
+    assert r.status_code == 201
+    data = r.json()
+    assert data["verification_channel"] == "sms"
+    assert data["email_verification_token"] is None
+    return data["mobile_verification_code"]
+
+
+async def test_register_without_email_uses_sms_channel(client):
+    code = await _register_mobile_only(client, "+919700000001")
+    assert code.isdigit() and len(code) == 6
+
+
+async def test_register_without_email_or_mobile_returns_422(client):
+    r = await client.post(f"{BASE}/auth/register", json={"password": "TestPass123!"})
+    assert r.status_code == 422
+
+
+async def test_sms_signup_login_blocked_until_verified(client):
+    mobile = "+919700000002"
+    await _register_mobile_only(client, mobile)
+
+    r = await client.post(
+        f"{BASE}/auth/login",
+        json={"mobile_number": mobile, "password": "TestPass123!"},
+    )
+    assert r.status_code == 403
+    assert "mobile number" in r.json()["detail"]
+
+
+async def test_verify_mobile_activates_account(client):
+    mobile = "+919700000003"
+    code = await _register_mobile_only(client, mobile)
+
+    v = await client.post(
+        f"{BASE}/auth/verify-mobile", json={"mobile_number": mobile, "code": code}
+    )
+    assert v.status_code == 200
+
+    r = await client.post(
+        f"{BASE}/auth/login",
+        json={"mobile_number": mobile, "password": "TestPass123!"},
+    )
+    assert r.status_code == 200
+    assert r.json()["access_token"]
+
+
+async def test_verify_mobile_wrong_code_returns_400(client):
+    mobile = "+919700000004"
+    await _register_mobile_only(client, mobile)
+
+    v = await client.post(
+        f"{BASE}/auth/verify-mobile", json={"mobile_number": mobile, "code": "000000"}
+    )
+    assert v.status_code == 400
+    assert v.json()["detail"] == "Invalid or expired verification code"
+
+
+async def test_verify_mobile_is_idempotent(client):
+    mobile = "+919700000005"
+    code = await _register_mobile_only(client, mobile)
+
+    first = await client.post(
+        f"{BASE}/auth/verify-mobile", json={"mobile_number": mobile, "code": code}
+    )
+    assert first.status_code == 200
+
+    second = await client.post(
+        f"{BASE}/auth/verify-mobile", json={"mobile_number": mobile, "code": code}
+    )
+    assert second.status_code == 200
+    assert second.json()["message"] == "Mobile number already verified"
+
+
+async def test_resend_mobile_code_issues_working_code(client):
+    mobile = "+919700000006"
+    old_code = await _register_mobile_only(client, mobile)
+
+    r = await client.post(f"{BASE}/auth/resend-mobile-code", json={"mobile_number": mobile})
+    assert r.status_code == 200
+
+    # The previous code must no longer work.
+    stale = await client.post(
+        f"{BASE}/auth/verify-mobile", json={"mobile_number": mobile, "code": old_code}
+    )
+    assert stale.status_code == 400
+
+
+async def test_resend_mobile_code_does_not_leak_account_existence(client):
+    r = await client.post(
+        f"{BASE}/auth/resend-mobile-code", json={"mobile_number": "+919700009999"}
+    )
+    assert r.status_code == 200
+    assert "If that number is registered" in r.json()["message"]

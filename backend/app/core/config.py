@@ -18,6 +18,18 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
+    # Twilio Emails API – leave empty to disable outbound email locally
+    TWILIO_API_KEY_SID: str = ""
+    TWILIO_API_KEY_SECRET: str = ""
+    EMAIL_FROM_ADDRESS: str = ""
+    EMAIL_FROM_NAME: str = "Agro Future"
+    FRONTEND_BASE_URL: str = "http://localhost:3000"
+
+    # Twilio SMS – ACxxxx account SID and a verified sender number
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_SMS_FROM: str = ""
+    MOBILE_CODE_TTL_MINUTES: int = 10
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

@@ -10,12 +10,13 @@ type TokenResponse = {
   token_type: string;
   user_id: string;
   email: string;
+  mobile_number: string | null;
   role: string;
 };
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -24,13 +25,22 @@ export default function LoginPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
+    const value = identifier.trim();
+    const credentials = value.includes('@')
+      ? { email: value, password }
+      : { mobile_number: value, password };
     try {
-      const data = await apiPost<TokenResponse>('/auth/login', { email, password });
+      const data = await apiPost<TokenResponse>('/auth/login', credentials);
       // Store JWT in localStorage for MVP (use httpOnly cookies in production)
       localStorage.setItem('token', data.access_token);
       localStorage.setItem(
         'user',
-        JSON.stringify({ id: data.user_id, email: data.email, role: data.role }),
+        JSON.stringify({
+          id: data.user_id,
+          email: data.email,
+          mobile_number: data.mobile_number,
+          role: data.role,
+        }),
       );
       router.push('/supplier/dashboard');
     } catch (e) {
@@ -51,14 +61,14 @@ export default function LoginPage() {
             </p>
           )}
           <label className="flex flex-col gap-1 text-sm font-medium text-gray-700">
-            Email
+            Email or mobile number
             <input
-              type="email"
+              type="text"
               required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               className="border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
-              placeholder="you@example.com"
+              placeholder="you@example.com or +919876543210"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm font-medium text-gray-700">
