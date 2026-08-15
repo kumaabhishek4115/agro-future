@@ -152,12 +152,11 @@ async def upsert_profile(
             land_size_hectares=body.land_size_hectares,
             crop_or_livestock_type=body.crop_or_livestock_type,
             ownership_status=(
-                OwnershipStatusEnum[body.ownership_status.value]
+                OwnershipStatusEnum(body.ownership_status.value)
                 if body.ownership_status
                 else None
             ),
             payout_details=body.payout_details,
-            is_complete=False,
             created_at=now,
             updated_at=now,
         )
@@ -174,7 +173,7 @@ async def upsert_profile(
         if "ownership_status" in payload:
             ownership_status = payload["ownership_status"]
             profile.ownership_status = (
-                OwnershipStatusEnum[ownership_status.value] if ownership_status else None
+                OwnershipStatusEnum(ownership_status.value) if ownership_status else None
             )
         if "payout_details" in payload:
             profile.payout_details = payload["payout_details"]

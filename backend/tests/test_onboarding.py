@@ -210,6 +210,7 @@ async def test_create_profile_partial_save_incomplete(client):
     assert r.status_code == 200
     data = r.json()
     assert data["is_complete"] is False
+    # 3 of 5 required fields provided => 60%
     assert data["completion_percentage"] == 60
     assert data["geography"] is None
     assert data["payout_details_masked"] is None
