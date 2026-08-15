@@ -240,6 +240,8 @@ class Project(Base):
     description: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
     methodology: Mapped[str] = mapped_column(String(255), nullable=False)
     geography: Mapped[str] = mapped_column(String(255), nullable=False)
+    baseline: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
+    expected_volume: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     # Lifecycle status
     status: Mapped[ProjectStatusEnum] = mapped_column(
