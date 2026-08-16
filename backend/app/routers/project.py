@@ -37,6 +37,7 @@ from app.db.models import (
     ProjectAuditEvent,
     ProjectDocument,
     ProjectStatusEnum,
+    User,
 )
 from app.db.session import get_db
 from app.models.common import ErrorResponse
@@ -45,6 +46,10 @@ from app.models.project import (
     DocumentType,
     ProjectCreateRequest,
     ProjectResponse,
+    ProjectSubmissionReceipt,
+    ProjectSubmissionResponse,
+    ProjectTimelineEntry,
+    ProjectTimelineResponse,
     ProjectUpdateRequest,
 )
 
@@ -91,6 +96,27 @@ def _project_to_response(project: Project) -> ProjectResponse:
     )
 
 
+def _submission_receipt_message(project: Project) -> str:
+    return (
+        "Project submitted successfully. Your submission has been received and is now in the intake queue."
+    )
+
+
+def _project_to_submission_response(project: Project) -> ProjectSubmissionResponse:
+    response = _project_to_response(project)
+    if project.submitted_at is None:
+        raise ValueError("submission receipt requested for a project that has not been submitted")
+    return ProjectSubmissionResponse(
+        **response.model_dump(),
+        submission_receipt=ProjectSubmissionReceipt(
+            project_id=str(project.id),
+            current_status=project.status.value,
+            submitted_at=project.submitted_at.isoformat(),
+            message=_submission_receipt_message(project),
+        ),
+    )
+
+
 def _project_snapshot(project: Project) -> str:
     """Return a JSON string capturing the current field values of a project."""
     return json.dumps(
@@ -122,6 +148,115 @@ async def _append_audit_event(
         occurred_at=datetime.now(timezone.utc),
     )
     db.add(evt)
+
+
+def _parse_snapshot(snapshot_json: str | None) -> dict:
+    if not snapshot_json:
+        return {}
+    try:
+        data = json.loads(snapshot_json)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _timeline_status_for_event(event: ProjectAuditEvent) -> str | None:
+    if event.event == AuditEventEnum.created:
+        return ProjectStatusEnum.draft.value
+    if event.event in (AuditEventEnum.submitted, AuditEventEnum.resubmitted):
+        return ProjectStatusEnum.submitted.value
+    if event.event == AuditEventEnum.in_review:
+        return ProjectStatusEnum.in_review.value
+    if event.event == AuditEventEnum.needs_info:
+        return ProjectStatusEnum.needs_info.value
+    if event.event == AuditEventEnum.approved:
+        return ProjectStatusEnum.approved.value
+    if event.event == AuditEventEnum.rejected:
+        return ProjectStatusEnum.rejected.value
+    return None
+
+
+def _mask_actor_id(actor_id: uuid.UUID | None) -> str:
+    if actor_id is None:
+        return "system"
+    return f"{str(actor_id)[:8]}…"
+
+
+def _project_status_timestamp(project: Project) -> datetime:
+    if project.status == ProjectStatusEnum.submitted and project.submitted_at is not None:
+        return project.submitted_at
+    return project.updated_at or project.created_at
+
+
+def _build_timeline_entry(
+    *,
+    status_value: str,
+    actor_id: uuid.UUID | None,
+    actor_role: str,
+    timestamp: datetime,
+    reason: str | None,
+) -> ProjectTimelineEntry:
+    return ProjectTimelineEntry(
+        status=status_value,
+        actor_role=actor_role,
+        actor_id=_mask_actor_id(actor_id),
+        timestamp=timestamp.isoformat(),
+        reason=reason,
+    )
+
+
+async def _build_project_timeline(
+    db: AsyncSession,
+    project: Project,
+) -> list[ProjectTimelineEntry]:
+    result = await db.execute(
+        select(ProjectAuditEvent)
+        .where(ProjectAuditEvent.project_id == project.id)
+        .order_by(ProjectAuditEvent.occurred_at.asc(), ProjectAuditEvent.id.asc())
+    )
+    audit_events = result.scalars().all()
+
+    actor_ids = sorted(
+        {event.actor_id for event in audit_events if event.actor_id is not None} | {project.supplier_id},
+        key=str,
+    )
+    actors_by_id: dict[uuid.UUID, User] = {}
+    if actor_ids:
+        users = await db.execute(select(User).where(User.id.in_(actor_ids)))
+        actors_by_id = {user.id: user for user in users.scalars().all()}
+
+    timeline: list[ProjectTimelineEntry] = []
+    for event in audit_events:
+        status_value = _timeline_status_for_event(event)
+        if status_value is None:
+            continue
+        actor = actors_by_id.get(event.actor_id) if event.actor_id is not None else None
+        snapshot = _parse_snapshot(event.snapshot_json)
+        reason = snapshot.get("review_reason")
+        timeline.append(
+            _build_timeline_entry(
+                status_value=status_value,
+                actor_id=event.actor_id,
+                actor_role=actor.role.value if actor is not None else "system",
+                timestamp=event.occurred_at,
+                reason=reason if status_value in (ProjectStatusEnum.needs_info.value, ProjectStatusEnum.rejected.value) else None,
+            )
+        )
+
+    if not timeline or timeline[-1].status != project.status.value:
+        actor = actors_by_id.get(project.supplier_id)
+        fallback_uses_supplier = project.status in (ProjectStatusEnum.draft, ProjectStatusEnum.submitted)
+        timeline.append(
+            _build_timeline_entry(
+                status_value=project.status.value,
+                actor_id=project.supplier_id if actor is not None and fallback_uses_supplier else None,
+                actor_role=actor.role.value if actor is not None and fallback_uses_supplier else "system",
+                timestamp=_project_status_timestamp(project),
+                reason=project.review_reason if project.status in (ProjectStatusEnum.needs_info, ProjectStatusEnum.rejected) else None,
+            )
+        )
+
+    return timeline
 
 
 def _doc_to_response(doc: ProjectDocument) -> DocumentResponse:
@@ -235,6 +370,40 @@ async def list_projects(
 # ---------------------------------------------------------------------------
 
 @router.get(
+    "/{project_id}/timeline",
+    response_model=ProjectTimelineResponse,
+    summary="Get a project submission receipt and review timeline",
+    responses={
+        **PROTECTED_RESPONSES,
+        404: {"model": ErrorResponse, "description": "Project not found"},
+    },
+)
+async def get_project_timeline(
+    project_id: uuid.UUID,
+    current_user: SupplierUser,
+    db: AsyncSession = Depends(get_db),
+) -> ProjectTimelineResponse:
+    project = await _get_owned_project(project_id, current_user, db)
+    timeline = await _build_project_timeline(db, project)
+    receipt = (
+        ProjectSubmissionReceipt(
+            project_id=str(project.id),
+            current_status=project.status.value,
+            submitted_at=project.submitted_at.isoformat(),
+            message=_submission_receipt_message(project),
+        )
+        if project.submitted_at is not None
+        else None
+    )
+    return ProjectTimelineResponse(
+        project_id=str(project.id),
+        current_status=project.status.value,
+        submission_receipt=receipt,
+        timeline=timeline,
+    )
+
+
+@router.get(
     "/{project_id}",
     response_model=ProjectResponse,
     summary="Get a project by ID",
@@ -309,7 +478,7 @@ async def update_project(
 
 @router.post(
     "/{project_id}/submit",
-    response_model=ProjectResponse,
+    response_model=ProjectSubmissionResponse,
     summary="Submit a draft project for operator review",
     responses={
         **PROTECTED_RESPONSES,
@@ -322,7 +491,7 @@ async def submit_project(
     project_id: uuid.UUID,
     current_user: SupplierUser,
     db: AsyncSession = Depends(get_db),
-) -> ProjectResponse:
+) -> ProjectSubmissionResponse:
     """
     Transition a project from **draft** → **submitted**.
 
@@ -381,7 +550,7 @@ async def submit_project(
     await _append_audit_event(db, project, AuditEventEnum.submitted, current_user.id)
     await db.commit()
     await db.refresh(project)
-    return _project_to_response(project)
+    return _project_to_submission_response(project)
 
 
 # ---------------------------------------------------------------------------

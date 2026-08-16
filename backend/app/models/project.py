@@ -88,6 +88,32 @@ class ProjectResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ProjectSubmissionReceipt(BaseModel):
+    project_id: str
+    current_status: str
+    submitted_at: str
+    message: str
+
+
+class ProjectSubmissionResponse(ProjectResponse):
+    submission_receipt: ProjectSubmissionReceipt
+
+
+class ProjectTimelineEntry(BaseModel):
+    status: str
+    actor_role: str
+    actor_id: str
+    timestamp: str
+    reason: Optional[str] = None
+
+
+class ProjectTimelineResponse(BaseModel):
+    project_id: str
+    current_status: str
+    submission_receipt: Optional[ProjectSubmissionReceipt] = None
+    timeline: list[ProjectTimelineEntry]
+
+
 # ---------------------------------------------------------------------------
 # Document schemas
 # ---------------------------------------------------------------------------
