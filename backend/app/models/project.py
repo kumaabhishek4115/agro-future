@@ -36,6 +36,8 @@ class ProjectCreateRequest(BaseModel):
     description: Optional[str] = Field(None, max_length=2000)
     methodology: str = Field(..., min_length=1, max_length=255)
     geography: str = Field(..., min_length=1, max_length=255)
+    baseline: Optional[str] = Field(None, max_length=2000)
+    expected_volume: Optional[float] = Field(None, gt=0, description="Expected annual CO2e tonnes")
 
     model_config = {
         "json_schema_extra": {
@@ -44,6 +46,8 @@ class ProjectCreateRequest(BaseModel):
                 "description": "Improved paddy management reducing CH4 emissions.",
                 "methodology": "VM0015",
                 "geography": "Punjab, India",
+                "baseline": "Business-as-usual CH4 emissions from flooded paddy.",
+                "expected_volume": 1500.0,
             }
         }
     }
@@ -54,6 +58,8 @@ class ProjectUpdateRequest(BaseModel):
     description: Optional[str] = Field(None, max_length=2000)
     methodology: Optional[str] = Field(None, min_length=1, max_length=255)
     geography: Optional[str] = Field(None, min_length=1, max_length=255)
+    baseline: Optional[str] = Field(None, max_length=2000)
+    expected_volume: Optional[float] = Field(None, gt=0, description="Expected annual CO2e tonnes")
 
     model_config = {
         "json_schema_extra": {
@@ -71,6 +77,8 @@ class ProjectResponse(BaseModel):
     description: Optional[str]
     methodology: str
     geography: str
+    baseline: Optional[str]
+    expected_volume: Optional[float]
     status: str
     submitted_at: Optional[str]
     created_at: str

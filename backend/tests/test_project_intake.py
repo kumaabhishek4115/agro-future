@@ -43,6 +43,14 @@ VALID_PROJECT = {
     "geography": "Punjab, India",
 }
 
+# A project with all submission-required fields populated (used by tests that need
+# to actually submit a project: methodology, geography, baseline, expected_volume).
+SUBMITTABLE_PROJECT = {
+    **VALID_PROJECT,
+    "baseline": "Business-as-usual CH4 emissions from flooded paddy.",
+    "expected_volume": 1200.0,
+}
+
 BEARER = "Bearer "
 
 
@@ -65,6 +73,14 @@ def auth(token: str) -> dict:
 
 async def _create_project(client, token, data=None):
     data = data or VALID_PROJECT
+    r = await client.post(f"{BASE}/projects", json=data, headers=auth(token))
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+async def _create_submittable_project(client, token, data=None):
+    """Create a project that has all fields required for submission."""
+    data = data or SUBMITTABLE_PROJECT
     r = await client.post(f"{BASE}/projects", json=data, headers=auth(token))
     assert r.status_code == 201, r.text
     return r.json()
@@ -209,7 +225,7 @@ async def test_update_project_preserves_created_at(client):
 async def test_update_submitted_project_rejected(client):
     """Submitted projects cannot be edited."""
     token = await _register_and_verify(client)
-    project = await _create_project(client, token)
+    project = await _create_submittable_project(client, token)
     # Submit first
     await client.post(f"{BASE}/projects/{project['id']}/submit", headers=auth(token))
     # Attempt update
@@ -228,7 +244,7 @@ async def test_update_submitted_project_rejected(client):
 
 async def test_submit_project_success(client):
     token = await _register_and_verify(client)
-    project = await _create_project(client, token)
+    project = await _create_submittable_project(client, token)
     r = await client.post(
         f"{BASE}/projects/{project['id']}/submit", headers=auth(token)
     )
@@ -240,7 +256,7 @@ async def test_submit_project_success(client):
 
 async def test_submit_already_submitted(client):
     token = await _register_and_verify(client)
-    project = await _create_project(client, token)
+    project = await _create_submittable_project(client, token)
     await client.post(f"{BASE}/projects/{project['id']}/submit", headers=auth(token))
     r = await client.post(
         f"{BASE}/projects/{project['id']}/submit", headers=auth(token)
@@ -286,7 +302,7 @@ async def test_upload_document_invalid_type(client):
 async def test_upload_document_to_submitted_project_rejected(client):
     """Documents cannot be uploaded to an already-submitted project."""
     token = await _register_and_verify(client)
-    project = await _create_project(client, token)
+    project = await _create_submittable_project(client, token)
     await client.post(f"{BASE}/projects/{project['id']}/submit", headers=auth(token))
     r = await client.post(
         f"{BASE}/projects/{project['id']}/documents",
@@ -338,3 +354,264 @@ async def test_upload_document_cross_user_forbidden(client):
         files={"file": ("f.pdf", io.BytesIO(b"x"), "application/pdf")},
     )
     assert r.status_code == 404
+
+
+# ===========================================================================
+# Acceptance Criteria tests – Issue #17: Project draft creation and state
+# management (Epic 2, §5.1)
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# AC1 – Farmers can save a draft without completing all required fields
+# ---------------------------------------------------------------------------
+
+async def test_ac1_create_draft_without_optional_fields(client):
+    """Draft can be saved with only the minimum required fields; optional fields
+    (description, baseline, expected_volume) may be absent."""
+    token = await _register_and_verify(client, {"email": "ac1_farmer@example.com", "password": "pass12345"})
+    minimal = {
+        "title": "Minimal Draft Project",
+        "methodology": "VM0015",
+        "geography": "Kerala, India",
+    }
+    r = await client.post(f"{BASE}/projects", json=minimal, headers=auth(token))
+    assert r.status_code == 201
+    data = r.json()
+    assert data["status"] == "draft"
+    assert data["description"] is None
+    assert data["baseline"] is None
+    assert data["expected_volume"] is None
+
+
+async def test_ac1_create_draft_with_all_fields(client):
+    """Draft can also be saved when all fields including baseline and
+    expected_volume are provided."""
+    token = await _register_and_verify(client, {"email": "ac1b_farmer@example.com", "password": "pass12345"})
+    full = {
+        "title": "Full Draft Project",
+        "description": "Detailed description.",
+        "methodology": "VM0015",
+        "geography": "Punjab, India",
+        "baseline": "Business-as-usual CH4 from flooded paddy.",
+        "expected_volume": 1500.0,
+    }
+    r = await client.post(f"{BASE}/projects", json=full, headers=auth(token))
+    assert r.status_code == 201
+    data = r.json()
+    assert data["status"] == "draft"
+    assert data["baseline"] == full["baseline"]
+    assert data["expected_volume"] == full["expected_volume"]
+
+
+# ---------------------------------------------------------------------------
+# AC2 – Farmers can resume an existing draft from their project list
+# ---------------------------------------------------------------------------
+
+async def test_ac2_resume_draft_from_list(client):
+    """A draft project saved partially can be fetched from the project list
+    and then updated to add missing fields – simulating 'resume draft'."""
+    token = await _register_and_verify(client, {"email": "ac2_farmer@example.com", "password": "pass12345"})
+    # Step 1: create a minimal draft
+    partial = {
+        "title": "Resumable Draft",
+        "methodology": "AMS-III.AU",
+        "geography": "Tamil Nadu, India",
+    }
+    r_create = await client.post(f"{BASE}/projects", json=partial, headers=auth(token))
+    assert r_create.status_code == 201
+    project_id = r_create.json()["id"]
+
+    # Step 2: list projects – the draft is visible
+    r_list = await client.get(f"{BASE}/projects", headers=auth(token))
+    assert r_list.status_code == 200
+    ids = [p["id"] for p in r_list.json()]
+    assert project_id in ids
+
+    # Step 3: fetch the individual draft
+    r_get = await client.get(f"{BASE}/projects/{project_id}", headers=auth(token))
+    assert r_get.status_code == 200
+    assert r_get.json()["status"] == "draft"
+
+    # Step 4: resume – patch in the remaining fields
+    r_patch = await client.patch(
+        f"{BASE}/projects/{project_id}",
+        json={"baseline": "BAU emissions baseline.", "expected_volume": 800.0},
+        headers=auth(token),
+    )
+    assert r_patch.status_code == 200
+    updated = r_patch.json()
+    assert updated["baseline"] == "BAU emissions baseline."
+    assert updated["expected_volume"] == 800.0
+    # Fields from original save are preserved
+    assert updated["methodology"] == "AMS-III.AU"
+
+
+# ---------------------------------------------------------------------------
+# AC3 – Submission blocked with clear validation errors until all required
+#        fields are complete
+# ---------------------------------------------------------------------------
+
+async def test_ac3_submit_blocked_missing_baseline(client):
+    """Submitting a draft without 'baseline' returns 422 with an error message
+    naming the missing field."""
+    token = await _register_and_verify(client, {"email": "ac3a_farmer@example.com", "password": "pass12345"})
+    project = await _create_project(client, token)
+    # VALID_PROJECT has no baseline / expected_volume
+    r = await client.post(f"{BASE}/projects/{project['id']}/submit", headers=auth(token))
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert "baseline" in detail
+    assert "expected_volume" in detail
+
+
+async def test_ac3_submit_blocked_missing_expected_volume(client):
+    """Submitting with baseline set but expected_volume still missing returns 422."""
+    token = await _register_and_verify(client, {"email": "ac3b_farmer@example.com", "password": "pass12345"})
+    project = await _create_project(client, token)
+    await client.patch(
+        f"{BASE}/projects/{project['id']}",
+        json={"baseline": "Some baseline description."},
+        headers=auth(token),
+    )
+    r = await client.post(f"{BASE}/projects/{project['id']}/submit", headers=auth(token))
+    assert r.status_code == 422
+    assert "expected_volume" in r.json()["detail"]
+
+
+async def test_ac3_submit_succeeds_when_all_required_fields_present(client):
+    """Submission succeeds once methodology, geography, baseline and
+    expected_volume are all populated."""
+    token = await _register_and_verify(client, {"email": "ac3c_farmer@example.com", "password": "pass12345"})
+    project = await _create_project(client, token)
+    await client.patch(
+        f"{BASE}/projects/{project['id']}",
+        json={"baseline": "BAU baseline.", "expected_volume": 2000.0},
+        headers=auth(token),
+    )
+    r = await client.post(f"{BASE}/projects/{project['id']}/submit", headers=auth(token))
+    assert r.status_code == 200
+    data = r.json()
+    assert data["status"] == "submitted"
+
+
+# ---------------------------------------------------------------------------
+# AC4 – Project state transitions are visible in the farmer portal
+# ---------------------------------------------------------------------------
+
+async def test_ac4_draft_status_visible_on_create(client):
+    """Newly created project is in 'draft' state and that is visible to
+    the farmer in both list and single-project responses."""
+    token = await _register_and_verify(client, {"email": "ac4a_farmer@example.com", "password": "pass12345"})
+    project = await _create_project(client, token)
+    assert project["status"] == "draft"
+
+    r_list = await client.get(f"{BASE}/projects", headers=auth(token))
+    draft_project = next(p for p in r_list.json() if p["id"] == project["id"])
+    assert draft_project["status"] == "draft"
+
+
+async def test_ac4_submitted_status_visible_after_submit(client):
+    """After submission the project status is 'submitted' in both list and
+    single-project responses."""
+    token = await _register_and_verify(client, {"email": "ac4b_farmer@example.com", "password": "pass12345"})
+    # Create a fully-filled project so submission is not blocked
+    full = {**VALID_PROJECT, "baseline": "BAU baseline.", "expected_volume": 500.0}
+    r_create = await client.post(f"{BASE}/projects", json=full, headers=auth(token))
+    assert r_create.status_code == 201
+    project_id = r_create.json()["id"]
+
+    await client.post(f"{BASE}/projects/{project_id}/submit", headers=auth(token))
+
+    r_get = await client.get(f"{BASE}/projects/{project_id}", headers=auth(token))
+    assert r_get.json()["status"] == "submitted"
+
+    r_list = await client.get(f"{BASE}/projects", headers=auth(token))
+    submitted = next(p for p in r_list.json() if p["id"] == project_id)
+    assert submitted["status"] == "submitted"
+
+
+async def test_ac4_all_status_enum_values_represented(client):
+    """Verify that the API response status field can represent all six
+    lifecycle states defined in the issue: draft, submitted, in_review,
+    needs_info, approved, rejected."""
+    from app.models.project import ProjectStatus
+    expected_states = {"draft", "submitted", "in_review", "needs_info", "approved", "rejected"}
+    actual_states = {s.value for s in ProjectStatus}
+    assert expected_states == actual_states
+
+
+# ---------------------------------------------------------------------------
+# AC5 – Required project fields: methodology, geography, baseline,
+#        expected_volume, and project metadata (title)
+# ---------------------------------------------------------------------------
+
+async def test_ac5_create_requires_title(client):
+    token = await _register_and_verify(client, {"email": "ac5a_farmer@example.com", "password": "pass12345"})
+    no_title = {k: v for k, v in VALID_PROJECT.items() if k != "title"}
+    r = await client.post(f"{BASE}/projects", json=no_title, headers=auth(token))
+    assert r.status_code == 422
+
+
+async def test_ac5_create_requires_methodology(client):
+    token = await _register_and_verify(client, {"email": "ac5b_farmer@example.com", "password": "pass12345"})
+    no_methodology = {k: v for k, v in VALID_PROJECT.items() if k != "methodology"}
+    r = await client.post(f"{BASE}/projects", json=no_methodology, headers=auth(token))
+    assert r.status_code == 422
+
+
+async def test_ac5_create_requires_geography(client):
+    token = await _register_and_verify(client, {"email": "ac5c_farmer@example.com", "password": "pass12345"})
+    no_geography = {k: v for k, v in VALID_PROJECT.items() if k != "geography"}
+    r = await client.post(f"{BASE}/projects", json=no_geography, headers=auth(token))
+    assert r.status_code == 422
+
+
+async def test_ac5_expected_volume_must_be_positive(client):
+    """expected_volume <= 0 is rejected at the schema layer."""
+    token = await _register_and_verify(client, {"email": "ac5d_farmer@example.com", "password": "pass12345"})
+    bad = {**VALID_PROJECT, "baseline": "BAU", "expected_volume": -50.0}
+    r = await client.post(f"{BASE}/projects", json=bad, headers=auth(token))
+    assert r.status_code == 422
+
+
+async def test_ac5_project_response_includes_all_required_fields(client):
+    """Project response exposes methodology, geography, baseline,
+    expected_volume and project metadata (id, title, status, timestamps)."""
+    token = await _register_and_verify(client, {"email": "ac5e_farmer@example.com", "password": "pass12345"})
+    full = {**VALID_PROJECT, "baseline": "BAU baseline.", "expected_volume": 1000.0}
+    r = await client.post(f"{BASE}/projects", json=full, headers=auth(token))
+    assert r.status_code == 201
+    data = r.json()
+    for field in ("id", "title", "methodology", "geography", "baseline", "expected_volume",
+                  "status", "created_at", "updated_at"):
+        assert field in data, f"Missing field in response: {field}"
+
+
+# ---------------------------------------------------------------------------
+# AC6 – Submitting records a timestamp and moves state to 'submitted'
+# ---------------------------------------------------------------------------
+
+async def test_ac6_submit_records_submitted_at_timestamp(client):
+    """submitted_at must be a non-null ISO-8601 datetime after submission."""
+    token = await _register_and_verify(client, {"email": "ac6_farmer@example.com", "password": "pass12345"})
+    full = {**VALID_PROJECT, "baseline": "BAU baseline.", "expected_volume": 750.0}
+    r_create = await client.post(f"{BASE}/projects", json=full, headers=auth(token))
+    assert r_create.status_code == 201
+    assert r_create.json()["submitted_at"] is None
+
+    project_id = r_create.json()["id"]
+    r_submit = await client.post(f"{BASE}/projects/{project_id}/submit", headers=auth(token))
+    assert r_submit.status_code == 200
+    data = r_submit.json()
+    assert data["status"] == "submitted"
+    assert data["submitted_at"] is not None
+    # submitted_at must be parseable as an ISO-8601 string
+    from datetime import datetime
+    datetime.fromisoformat(data["submitted_at"].replace("Z", "+00:00"))
+
+
+async def test_ac6_submitted_at_null_for_draft(client):
+    """submitted_at is None on a draft project."""
+    token = await _register_and_verify(client, {"email": "ac6b_farmer@example.com", "password": "pass12345"})
+    project = await _create_project(client, token)
+    assert project["submitted_at"] is None

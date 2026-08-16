@@ -67,6 +67,8 @@ def _project_to_response(project: Project) -> ProjectResponse:
         description=project.description,
         methodology=project.methodology,
         geography=project.geography,
+        baseline=project.baseline,
+        expected_volume=project.expected_volume,
         status=project.status.value,
         submitted_at=project.submitted_at.isoformat() if project.submitted_at else None,
         created_at=project.created_at.isoformat(),
@@ -139,6 +141,8 @@ async def create_project(
         description=body.description,
         methodology=body.methodology,
         geography=body.geography,
+        baseline=body.baseline,
+        expected_volume=body.expected_volume,
         status=ProjectStatusEnum.draft,
         created_at=now,
         updated_at=now,
@@ -238,6 +242,10 @@ async def update_project(
         project.methodology = body.methodology
     if body.geography is not None:
         project.geography = body.geography
+    if body.baseline is not None:
+        project.baseline = body.baseline
+    if body.expected_volume is not None:
+        project.expected_volume = body.expected_volume
     project.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(project)
@@ -277,6 +285,21 @@ async def submit_project(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Only draft projects can be submitted.",
+        )
+    # Server-side validation: all required fields must be present before submission.
+    missing_fields = []
+    if project.methodology is None:
+        missing_fields.append("methodology")
+    if project.geography is None:
+        missing_fields.append("geography")
+    if project.baseline is None:
+        missing_fields.append("baseline")
+    if project.expected_volume is None:
+        missing_fields.append("expected_volume")
+    if missing_fields:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Cannot submit: the following required fields are missing: {', '.join(missing_fields)}.",
         )
     now = datetime.now(timezone.utc)
     project.status = ProjectStatusEnum.submitted
