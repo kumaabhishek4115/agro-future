@@ -53,6 +53,16 @@ PROTECTED_RESPONSES = {
 
 # Maximum uploaded file size: 20 MB
 MAX_FILE_BYTES = 20 * 1024 * 1024
+ALLOWED_UPLOAD_MIME_TYPES = (
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+)
+REQUIRED_DOCUMENT_TYPES = (
+    DocumentType.registry_evidence,
+    DocumentType.mrv_record,
+    DocumentType.land_ownership_proof,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +274,7 @@ async def update_project(
         **PROTECTED_RESPONSES,
         404: {"model": ErrorResponse, "description": "Project not found"},
         409: {"model": ErrorResponse, "description": "Project is already submitted"},
+        422: {"model": ErrorResponse, "description": "Validation error"},
     },
 )
 async def submit_project(
@@ -296,10 +307,29 @@ async def submit_project(
         missing_fields.append("baseline")
     if project.expected_volume is None:
         missing_fields.append("expected_volume")
+    result = await db.execute(
+        select(ProjectDocument.doc_type).where(ProjectDocument.project_id == project.id)
+    )
+    present_doc_types = set(result.scalars())
+    missing_document_types = [
+        doc_type.value
+        for doc_type in REQUIRED_DOCUMENT_TYPES
+        if DocumentTypeEnum(doc_type.value) not in present_doc_types
+    ]
+    validation_errors = []
     if missing_fields:
+        validation_errors.append(
+            f"required fields are missing: {', '.join(missing_fields)}"
+        )
+    if missing_document_types:
+        validation_errors.append(
+            "required document types are missing: "
+            + ", ".join(missing_document_types)
+        )
+    if validation_errors:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Cannot submit: the following required fields are missing: {', '.join(missing_fields)}.",
+            detail=f"Cannot submit: {'; '.join(validation_errors)}.",
         )
     now = datetime.now(timezone.utc)
     project.status = ProjectStatusEnum.submitted
@@ -324,6 +354,7 @@ async def submit_project(
         404: {"model": ErrorResponse, "description": "Project not found"},
         409: {"model": ErrorResponse, "description": "Submitted projects cannot receive new documents"},
         413: {"model": ErrorResponse, "description": "File too large (max 20 MB)"},
+        415: {"model": ErrorResponse, "description": "Unsupported file type"},
         422: {"model": ErrorResponse, "description": "Validation error"},
     },
 )
@@ -341,8 +372,9 @@ async def upload_document(
     The `storage_uri` returned is a local-path reference (MVP); a production
     system would write to an object store and return a signed URL (TRD §3.1).
 
-    Accepted document types: `registry_evidence`, `mrv_record`,
+    Accepted document categories: `registry_evidence`, `mrv_record`,
     `land_ownership_proof`, `other`.
+    Supported file formats: PDF, JPEG, PNG.
 
     TRD §5.1 – "Document upload support for registry evidence, MRV records,
                 land ownership proofs."
@@ -352,6 +384,17 @@ async def upload_document(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Documents can only be added to draft projects.",
+        )
+
+    content_type = (file.content_type or "").split(";", 1)[0].strip().lower()
+    if content_type not in ALLOWED_UPLOAD_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=(
+                "Unsupported file type. Allowed MIME types: "
+                + ", ".join(ALLOWED_UPLOAD_MIME_TYPES)
+                + "."
+            ),
         )
 
     content = await file.read(MAX_FILE_BYTES + 1)
@@ -365,7 +408,7 @@ async def upload_document(
     # Sanitize filename to prevent path traversal in storage_uri
     filename = Path(file.filename or "upload").name or "upload"
     # MVP: store path reference; replace with S3/GCS URI in production.
-    storage_uri = f"local://uploads/{project_id}/{filename}"
+    storage_uri = f"local://uploads/{project_id}/{doc_type.value}/{filename}"
 
     doc = ProjectDocument(
         project_id=project.id,

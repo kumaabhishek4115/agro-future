@@ -52,6 +52,11 @@ SUBMITTABLE_PROJECT = {
 }
 
 BEARER = "Bearer "
+REQUIRED_DOC_TYPES = (
+    "registry_evidence",
+    "mrv_record",
+    "land_ownership_proof",
+)
 
 
 async def _register_and_verify(client, user=None):
@@ -84,6 +89,31 @@ async def _create_submittable_project(client, token, data=None):
     r = await client.post(f"{BASE}/projects", json=data, headers=auth(token))
     assert r.status_code == 201, r.text
     return r.json()
+
+
+async def _upload_document(
+    client,
+    token,
+    project_id,
+    *,
+    doc_type="registry_evidence",
+    filename=None,
+    content=b"content",
+    mime_type="application/pdf",
+):
+    filename = filename or f"{doc_type}.pdf"
+    return await client.post(
+        f"{BASE}/projects/{project_id}/documents",
+        headers=auth(token),
+        data={"doc_type": doc_type},
+        files={"file": (filename, io.BytesIO(content), mime_type)},
+    )
+
+
+async def _upload_required_documents(client, token, project_id):
+    for doc_type in REQUIRED_DOC_TYPES:
+        response = await _upload_document(client, token, project_id, doc_type=doc_type)
+        assert response.status_code == 201, response.text
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +256,7 @@ async def test_update_submitted_project_rejected(client):
     """Submitted projects cannot be edited."""
     token = await _register_and_verify(client)
     project = await _create_submittable_project(client, token)
+    await _upload_required_documents(client, token, project["id"])
     # Submit first
     await client.post(f"{BASE}/projects/{project['id']}/submit", headers=auth(token))
     # Attempt update
@@ -245,6 +276,7 @@ async def test_update_submitted_project_rejected(client):
 async def test_submit_project_success(client):
     token = await _register_and_verify(client)
     project = await _create_submittable_project(client, token)
+    await _upload_required_documents(client, token, project["id"])
     r = await client.post(
         f"{BASE}/projects/{project['id']}/submit", headers=auth(token)
     )
@@ -257,6 +289,7 @@ async def test_submit_project_success(client):
 async def test_submit_already_submitted(client):
     token = await _register_and_verify(client)
     project = await _create_submittable_project(client, token)
+    await _upload_required_documents(client, token, project["id"])
     await client.post(f"{BASE}/projects/{project['id']}/submit", headers=auth(token))
     r = await client.post(
         f"{BASE}/projects/{project['id']}/submit", headers=auth(token)
@@ -273,11 +306,13 @@ async def test_upload_document_success(client):
     token = await _register_and_verify(client)
     project = await _create_project(client, token)
     file_content = b"Sample registry evidence document content."
-    r = await client.post(
-        f"{BASE}/projects/{project['id']}/documents",
-        headers=auth(token),
-        data={"doc_type": "registry_evidence"},
-        files={"file": ("evidence.pdf", io.BytesIO(file_content), "application/pdf")},
+    r = await _upload_document(
+        client,
+        token,
+        project["id"],
+        doc_type="registry_evidence",
+        filename="evidence.pdf",
+        content=file_content,
     )
     assert r.status_code == 201
     data = r.json()
@@ -285,6 +320,7 @@ async def test_upload_document_success(client):
     assert data["filename"] == "evidence.pdf"
     assert len(data["checksum"]) == 64  # SHA-256 hex
     assert data["project_id"] == project["id"]
+    assert data["storage_uri"].endswith("/registry_evidence/evidence.pdf")
 
 
 async def test_upload_document_invalid_type(client):
@@ -299,16 +335,52 @@ async def test_upload_document_invalid_type(client):
     assert r.status_code == 422
 
 
+async def test_upload_document_invalid_mime_type(client):
+    token = await _register_and_verify(client)
+    project = await _create_project(client, token)
+    r = await _upload_document(
+        client,
+        token,
+        project["id"],
+        doc_type="registry_evidence",
+        filename="notes.txt",
+        content=b"plain text",
+        mime_type="text/plain",
+    )
+    assert r.status_code == 415
+    assert "Unsupported file type" in r.json()["detail"]
+
+
+async def test_upload_document_too_large(client, monkeypatch):
+    from app.routers import project as project_router
+
+    monkeypatch.setattr(project_router, "MAX_FILE_BYTES", 5)
+    token = await _register_and_verify(client)
+    project = await _create_project(client, token)
+    r = await _upload_document(
+        client,
+        token,
+        project["id"],
+        doc_type="registry_evidence",
+        content=b"123456",
+    )
+    assert r.status_code == 413
+    assert "maximum allowed size" in r.json()["detail"]
+
+
 async def test_upload_document_to_submitted_project_rejected(client):
     """Documents cannot be uploaded to an already-submitted project."""
     token = await _register_and_verify(client)
     project = await _create_submittable_project(client, token)
+    await _upload_required_documents(client, token, project["id"])
     await client.post(f"{BASE}/projects/{project['id']}/submit", headers=auth(token))
-    r = await client.post(
-        f"{BASE}/projects/{project['id']}/documents",
-        headers=auth(token),
-        data={"doc_type": "mrv_record"},
-        files={"file": ("mrv.pdf", io.BytesIO(b"data"), "application/pdf")},
+    r = await _upload_document(
+        client,
+        token,
+        project["id"],
+        doc_type="mrv_record",
+        filename="mrv.pdf",
+        content=b"data",
     )
     assert r.status_code == 409
 
@@ -319,18 +391,20 @@ async def test_list_documents_success(client):
 
     # Upload two documents
     for doc_type in ("registry_evidence", "land_ownership_proof"):
-        await client.post(
-            f"{BASE}/projects/{project['id']}/documents",
-            headers=auth(token),
-            data={"doc_type": doc_type},
-            files={"file": (f"{doc_type}.pdf", io.BytesIO(b"content"), "application/pdf")},
-        )
+        response = await _upload_document(client, token, project["id"], doc_type=doc_type)
+        assert response.status_code == 201, response.text
 
     r = await client.get(
         f"{BASE}/projects/{project['id']}/documents", headers=auth(token)
     )
     assert r.status_code == 200
-    assert len(r.json()) == 2
+    data = r.json()
+    assert len(data) == 2
+    assert [doc["doc_type"] for doc in data] == [
+        "registry_evidence",
+        "land_ownership_proof",
+    ]
+    assert all(doc["uploaded_at"] for doc in data)
 
 
 async def test_list_documents_empty(client):
@@ -347,12 +421,22 @@ async def test_upload_document_cross_user_forbidden(client):
     token1 = await _register_and_verify(client, {"email": "d_a@example.com", "password": "pass12345"})
     token2 = await _register_and_verify(client, {"email": "d_b@example.com", "password": "pass12345"})
     project = await _create_project(client, token1)
-    r = await client.post(
-        f"{BASE}/projects/{project['id']}/documents",
-        headers=auth(token2),
-        data={"doc_type": "other"},
-        files={"file": ("f.pdf", io.BytesIO(b"x"), "application/pdf")},
+    r = await _upload_document(
+        client,
+        token2,
+        project["id"],
+        doc_type="registry_evidence",
+        filename="f.pdf",
+        content=b"x",
     )
+    assert r.status_code == 404
+
+
+async def test_list_documents_cross_user_forbidden(client):
+    token1 = await _register_and_verify(client, {"email": "d_c@example.com", "password": "pass12345"})
+    token2 = await _register_and_verify(client, {"email": "d_d@example.com", "password": "pass12345"})
+    project = await _create_project(client, token1)
+    r = await client.get(f"{BASE}/projects/{project['id']}/documents", headers=auth(token2))
     assert r.status_code == 404
 
 
@@ -488,10 +572,39 @@ async def test_ac3_submit_succeeds_when_all_required_fields_present(client):
         json={"baseline": "BAU baseline.", "expected_volume": 2000.0},
         headers=auth(token),
     )
+    await _upload_required_documents(client, token, project["id"])
     r = await client.post(f"{BASE}/projects/{project['id']}/submit", headers=auth(token))
     assert r.status_code == 200
     data = r.json()
     assert data["status"] == "submitted"
+
+
+async def test_submit_project_blocked_when_required_documents_missing(client):
+    token = await _register_and_verify(client, {"email": "ac3d_farmer@example.com", "password": "pass12345"})
+    project = await _create_submittable_project(client, token)
+    r = await client.post(f"{BASE}/projects/{project['id']}/submit", headers=auth(token))
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert "required document types are missing" in detail
+    for doc_type in REQUIRED_DOC_TYPES:
+        assert doc_type in detail
+
+
+async def test_submit_project_allows_optional_document_types_in_addition_to_required_ones(client):
+    token = await _register_and_verify(client, {"email": "ac3e_farmer@example.com", "password": "pass12345"})
+    project = await _create_submittable_project(client, token)
+    await _upload_required_documents(client, token, project["id"])
+    extra = await _upload_document(
+        client,
+        token,
+        project["id"],
+        doc_type="other",
+        filename="extra.pdf",
+        content=b"extra",
+    )
+    assert extra.status_code == 201
+    r = await client.post(f"{BASE}/projects/{project['id']}/submit", headers=auth(token))
+    assert r.status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -519,6 +632,7 @@ async def test_ac4_submitted_status_visible_after_submit(client):
     r_create = await client.post(f"{BASE}/projects", json=full, headers=auth(token))
     assert r_create.status_code == 201
     project_id = r_create.json()["id"]
+    await _upload_required_documents(client, token, project_id)
 
     await client.post(f"{BASE}/projects/{project_id}/submit", headers=auth(token))
 
@@ -600,6 +714,7 @@ async def test_ac6_submit_records_submitted_at_timestamp(client):
     assert r_create.json()["submitted_at"] is None
 
     project_id = r_create.json()["id"]
+    await _upload_required_documents(client, token, project_id)
     r_submit = await client.post(f"{BASE}/projects/{project_id}/submit", headers=auth(token))
     assert r_submit.status_code == 200
     data = r_submit.json()
