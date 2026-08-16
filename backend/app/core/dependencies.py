@@ -76,3 +76,16 @@ def require_supplier(current_user: CurrentUser) -> User:
 
 
 SupplierUser = Annotated[User, Depends(require_supplier)]
+
+
+def require_operator(current_user: CurrentUser) -> User:
+    """Allow only users with the 'operator' or 'admin' role."""
+    if current_user.role not in (RoleEnum.operator, RoleEnum.admin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operator or admin role required",
+        )
+    return current_user
+
+
+OperatorUser = Annotated[User, Depends(require_operator)]

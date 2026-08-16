@@ -142,12 +142,21 @@ async def _append_audit_event(
     project: Project,
     event: AuditEventEnum,
     actor_id: uuid.UUID | None = None,
+    *,
+    actor_role: str | None = None,
+    resource_type: str = "project",
+    resource_id: uuid.UUID | None = None,
+    reason: str | None = None,
 ) -> None:
     """Append an immutable audit event with a field snapshot."""
     evt = ProjectAuditEvent(
         project_id=project.id,
         actor_id=actor_id,
+        actor_role=actor_role,
         event=event,
+        resource_type=resource_type,
+        resource_id=resource_id if resource_id is not None else project.id,
+        reason=reason,
         snapshot_json=_project_snapshot(project),
         occurred_at=datetime.now(timezone.utc),
     )
@@ -345,7 +354,7 @@ async def create_project(
     )
     db.add(project)
     await db.flush()  # populate project.id before creating the audit event
-    await _append_audit_event(db, project, AuditEventEnum.created, current_user.id)
+    await _append_audit_event(db, project, AuditEventEnum.created, current_user.id, actor_role=current_user.role.value)
     await db.commit()
     await db.refresh(project)
     return _project_to_response(project)
@@ -479,7 +488,7 @@ async def update_project(
     if body.expected_volume is not None:
         project.expected_volume = body.expected_volume
     project.updated_at = datetime.now(timezone.utc)
-    await _append_audit_event(db, project, AuditEventEnum.updated, current_user.id)
+    await _append_audit_event(db, project, AuditEventEnum.updated, current_user.id, actor_role=current_user.role.value)
     await db.commit()
     await db.refresh(project)
     return _project_to_response(project)
@@ -560,7 +569,7 @@ async def submit_project(
     project.status = ProjectStatusEnum.submitted
     project.submitted_at = now
     project.updated_at = now
-    await _append_audit_event(db, project, AuditEventEnum.submitted, current_user.id)
+    await _append_audit_event(db, project, AuditEventEnum.submitted, current_user.id, actor_role=current_user.role.value)
     await db.commit()
     await db.refresh(project)
     return _project_to_submission_response(project)
@@ -645,6 +654,16 @@ async def upload_document(
         uploaded_at=datetime.now(timezone.utc),
     )
     db.add(doc)
+    await db.flush()  # populate doc.id before creating the audit event
+    await _append_audit_event(
+        db,
+        project,
+        AuditEventEnum.document_uploaded,
+        current_user.id,
+        actor_role=current_user.role.value,
+        resource_type="document",
+        resource_id=doc.id,
+    )
     await db.commit()
     await db.refresh(doc)
     return _doc_to_response(doc)
@@ -762,7 +781,8 @@ async def resubmit_project(
     project.status = ProjectStatusEnum.submitted
     project.review_reason = None  # clear prior feedback on resubmission
     project.updated_at = now
-    await _append_audit_event(db, project, AuditEventEnum.resubmitted, current_user.id)
+    await _append_audit_event(db, project, AuditEventEnum.resubmitted, current_user.id, actor_role=current_user.role.value)
     await db.commit()
     await db.refresh(project)
     return _project_to_response(project)
+

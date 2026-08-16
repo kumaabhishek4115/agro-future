@@ -28,6 +28,7 @@ EXPECTED_OPERATIONS = {
     ("/api/v1/projects/{project_id}/submit", "post"),
     ("/api/v1/projects/{project_id}/documents", "post"),
     ("/api/v1/projects/{project_id}/documents", "get"),
+    ("/api/v1/audit-log", "get"),
 }
 
 
