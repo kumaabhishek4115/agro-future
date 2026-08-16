@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.models.common import HealthResponse
-from app.routers import auth, supplier, project
+from app.routers import auth, supplier, project, audit_log
 
 TAGS_METADATA = [
     {
@@ -38,6 +38,13 @@ TAGS_METADATA = [
             "Carbon credit project management (Epic 2). "
             "Create, update and submit projects; attach supporting documents. "
             "Protected: requires role `supplier` (TRD sections 5.1, 5.2, 6, 8)."
+        ),
+    },
+    {
+        "name": "audit-log",
+        "description": (
+            "Append-only audit trail query for operators. "
+            "Protected: requires role `operator` or `admin` (TRD sections 5.2, 8, 10)."
         ),
     },
 ]
@@ -98,6 +105,7 @@ API_PREFIX = "/api/v1"
 app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(supplier.router, prefix=API_PREFIX)
 app.include_router(project.router, prefix=API_PREFIX)
+app.include_router(audit_log.router, prefix=API_PREFIX)
 
 
 @app.get(

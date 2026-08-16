@@ -137,7 +137,7 @@ async def test_document_upload_emits_audit_event(client_and_db):
 async def test_each_document_upload_emits_separate_audit_event(client_and_db):
     client, db = client_and_db
     token = await _register_and_verify(
-        client, {"email": "multi_doc_supplier@example.com", "password": "pass123"}
+        client, {"email": "multi_doc_supplier@example.com", "password": "securepass123"}
     )
     project_id = await _create_project(client, token)
 
@@ -165,7 +165,7 @@ async def test_each_document_upload_emits_separate_audit_event(client_and_db):
 async def test_audit_event_captures_required_fields(client_and_db):
     client, db = client_and_db
     token = await _register_and_verify(
-        client, {"email": "fields_supplier@example.com", "password": "pass123"}
+        client, {"email": "fields_supplier@example.com", "password": "securepass123"}
     )
     project_id = await _create_project(client, token)
 
@@ -195,7 +195,7 @@ async def test_audit_event_captures_required_fields(client_and_db):
 async def test_submitted_audit_event_captures_all_fields(client_and_db):
     client, db = client_and_db
     token = await _register_and_verify(
-        client, {"email": "submit_audit@example.com", "password": "pass123"}
+        client, {"email": "submit_audit@example.com", "password": "securepass123"}
     )
     project_id = await _create_project(client, token)
     for dt in REQUIRED_DOC_TYPES:
@@ -228,7 +228,7 @@ async def test_submitted_audit_event_captures_all_fields(client_and_db):
 async def test_operator_can_query_audit_log_by_project(client_and_db):
     client, db = client_and_db
     token = await _register_and_verify(
-        client, {"email": "op_query_supplier@example.com", "password": "pass123"}
+        client, {"email": "op_query_supplier@example.com", "password": "securepass123"}
     )
     project_id = await _create_project(client, token)
     await _upload_doc(client, token, project_id)
@@ -239,7 +239,7 @@ async def test_operator_can_query_audit_log_by_project(client_and_db):
     op_token = create_access_token({"sub": str(operator.id), "role": "operator"})
 
     r = await client.get(
-        f"{BASE}/projects/audit-log",
+        f"{BASE}/audit-log",
         headers=auth(op_token),
         params={"project_id": project_id},
     )
@@ -261,7 +261,7 @@ async def test_operator_can_query_audit_log_by_project(client_and_db):
 
 async def test_operator_can_query_audit_log_by_supplier(client_and_db):
     client, db = client_and_db
-    user = {"email": "supplier_query@example.com", "password": "pass123"}
+    user = {"email": "supplier_query@example.com", "password": "securepass123"}
     token = await _register_and_verify(client, user)
     project_id = await _create_project(client, token)
 
@@ -276,7 +276,7 @@ async def test_operator_can_query_audit_log_by_supplier(client_and_db):
     op_token = create_access_token({"sub": str(operator.id), "role": "operator"})
 
     r = await client.get(
-        f"{BASE}/projects/audit-log",
+        f"{BASE}/audit-log",
         headers=auth(op_token),
         params={"supplier_id": str(supplier.id)},
     )
@@ -294,17 +294,17 @@ async def test_operator_audit_log_requires_at_least_one_filter(client_and_db):
     from app.core.security import create_access_token
     op_token = create_access_token({"sub": str(operator.id), "role": "operator"})
 
-    r = await client.get(f"{BASE}/projects/audit-log", headers=auth(op_token))
+    r = await client.get(f"{BASE}/audit-log", headers=auth(op_token))
     assert r.status_code == 400
 
 
 async def test_supplier_cannot_access_audit_log(client):
     token = await _register_and_verify(
-        client, {"email": "supplier_no_audit@example.com", "password": "pass123"}
+        client, {"email": "supplier_no_audit@example.com", "password": "securepass123"}
     )
     project_id = await _create_project(client, token)
     r = await client.get(
-        f"{BASE}/projects/audit-log",
+        f"{BASE}/audit-log",
         headers=auth(token),
         params={"project_id": project_id},
     )
@@ -318,7 +318,7 @@ async def test_audit_log_returns_404_for_nonexistent_project(client_and_db):
     op_token = create_access_token({"sub": str(operator.id), "role": "operator"})
 
     r = await client.get(
-        f"{BASE}/projects/audit-log",
+        f"{BASE}/audit-log",
         headers=auth(op_token),
         params={"project_id": str(uuid.uuid4())},
     )
@@ -332,7 +332,7 @@ async def test_audit_log_returns_404_for_nonexistent_supplier(client_and_db):
     op_token = create_access_token({"sub": str(operator.id), "role": "operator"})
 
     r = await client.get(
-        f"{BASE}/projects/audit-log",
+        f"{BASE}/audit-log",
         headers=auth(op_token),
         params={"supplier_id": str(uuid.uuid4())},
     )
@@ -341,7 +341,7 @@ async def test_audit_log_returns_404_for_nonexistent_supplier(client_and_db):
 
 async def test_admin_can_also_query_audit_log(client_and_db):
     client, db = client_and_db
-    user = {"email": "admin_audit_supplier@example.com", "password": "pass123"}
+    user = {"email": "admin_audit_supplier@example.com", "password": "securepass123"}
     token = await _register_and_verify(client, user)
     project_id = await _create_project(client, token)
 
@@ -350,7 +350,7 @@ async def test_admin_can_also_query_audit_log(client_and_db):
     admin_token = create_access_token({"sub": str(admin.id), "role": "admin"})
 
     r = await client.get(
-        f"{BASE}/projects/audit-log",
+        f"{BASE}/audit-log",
         headers=auth(admin_token),
         params={"project_id": project_id},
     )

@@ -25,12 +25,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.authorization import ensure_supplier_owns_resource
-from app.core.dependencies import SupplierUser, CurrentUser, OperatorUser
+from app.core.dependencies import SupplierUser
 from app.db.models import (
     AuditEventEnum,
     DocumentTypeEnum,
@@ -38,14 +38,11 @@ from app.db.models import (
     ProjectAuditEvent,
     ProjectDocument,
     ProjectStatusEnum,
-    RoleEnum,
     User,
 )
 from app.db.session import get_db
 from app.models.common import ErrorResponse
 from app.models.project import (
-    AuditEventResponse,
-    AuditLogResponse,
     DocumentResponse,
     DocumentType,
     ProjectCreateRequest,
@@ -789,95 +786,3 @@ async def resubmit_project(
     await db.refresh(project)
     return _project_to_response(project)
 
-
-# ---------------------------------------------------------------------------
-# GET /api/v1/projects/audit-log  – operator audit log query
-# ---------------------------------------------------------------------------
-
-@router.get(
-    "/audit-log",
-    response_model=AuditLogResponse,
-    summary="Query the audit log for a project or farmer (operator only)",
-    responses={
-        **PROTECTED_RESPONSES,
-        400: {"model": ErrorResponse, "description": "project_id or supplier_id must be provided"},
-        404: {"model": ErrorResponse, "description": "Project or supplier not found"},
-    },
-    tags=["projects"],
-)
-async def query_audit_log(
-    current_user: OperatorUser,
-    db: AsyncSession = Depends(get_db),
-    project_id: uuid.UUID | None = Query(None, description="Filter by project ID"),
-    supplier_id: uuid.UUID | None = Query(None, description="Filter by supplier/farmer user ID"),
-) -> AuditLogResponse:
-    """
-    Return the full audit event log filtered by project or supplier.
-
-    Exactly one of `project_id` or `supplier_id` must be supplied.
-    Results are ordered chronologically (oldest first).
-
-    Only operators and admins may access this endpoint.
-
-    TRD §5.2 – Review workflow audit requirements
-    TRD §8   – Security and audit
-    TRD §10  – Compliance and data retention
-    """
-    if project_id is None and supplier_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="At least one of project_id or supplier_id must be provided.",
-        )
-
-    query = select(ProjectAuditEvent)
-
-    if project_id is not None:
-        # Verify project exists
-        project_exists = await db.execute(
-            select(Project.id).where(Project.id == project_id)
-        )
-        if project_exists.scalar_one_or_none() is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found.",
-            )
-        query = query.where(ProjectAuditEvent.project_id == project_id)
-    elif supplier_id is not None:
-        # Verify supplier exists
-        supplier_exists = await db.execute(
-            select(User.id).where(User.id == supplier_id)
-        )
-        if supplier_exists.scalar_one_or_none() is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Supplier not found.",
-            )
-        # Join through projects owned by this supplier
-        query = (
-            query
-            .join(Project, ProjectAuditEvent.project_id == Project.id)
-            .where(Project.supplier_id == supplier_id)
-        )
-
-    query = query.order_by(ProjectAuditEvent.occurred_at.asc())
-    result = await db.execute(query)
-    events = result.scalars().all()
-
-    return AuditLogResponse(
-        total=len(events),
-        events=[_audit_event_to_response(e) for e in events],
-    )
-
-
-def _audit_event_to_response(event: ProjectAuditEvent) -> AuditEventResponse:
-    return AuditEventResponse(
-        id=str(event.id),
-        project_id=str(event.project_id),
-        event_type=event.event.value,
-        actor_id=str(event.actor_id) if event.actor_id is not None else None,
-        actor_role=event.actor_role,
-        resource_type=event.resource_type,
-        resource_id=str(event.resource_id) if event.resource_id is not None else None,
-        reason=event.reason,
-        timestamp=event.occurred_at.isoformat(),
-    )
