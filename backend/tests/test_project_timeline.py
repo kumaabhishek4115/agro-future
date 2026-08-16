@@ -294,4 +294,4 @@ async def test_timeline_gracefully_handles_project_without_audit_history(client_
     assert data["submission_receipt"]["project_id"] == str(project.id)
     assert len(data["timeline"]) == 1
     assert data["timeline"][0]["status"] == "submitted"
-    assert data["timeline"][0]["actor_role"] == "supplier"
+    assert data["timeline"][0]["actor_role"] == farmer.role.value

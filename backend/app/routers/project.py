@@ -96,7 +96,7 @@ def _project_to_response(project: Project) -> ProjectResponse:
     )
 
 
-def _submission_receipt_message(project: Project) -> str:
+def _submission_receipt_message() -> str:
     return (
         "Project submitted successfully. Your submission has been received and is now in the intake queue."
     )
@@ -112,7 +112,7 @@ def _project_to_submission_response(project: Project) -> ProjectSubmissionRespon
             project_id=str(project.id),
             current_status=project.status.value,
             submitted_at=project.submitted_at.isoformat(),
-            message=_submission_receipt_message(project),
+            message=_submission_receipt_message(),
         ),
     )
 
@@ -217,7 +217,8 @@ async def _build_project_timeline(
     audit_events = result.scalars().all()
 
     actor_ids = sorted(
-        {event.actor_id for event in audit_events if event.actor_id is not None} | {project.supplier_id},
+        {event.actor_id for event in audit_events if event.actor_id is not None}
+        | ({project.supplier_id} if project.supplier_id is not None else set()),
         key=str,
     )
     actors_by_id: dict[uuid.UUID, User] = {}
@@ -226,6 +227,8 @@ async def _build_project_timeline(
         actors_by_id = {user.id: user for user in users.scalars().all()}
 
     timeline: list[ProjectTimelineEntry] = []
+    last_event_actor_id: uuid.UUID | None = None
+    last_event_actor_role = "system"
     for event in audit_events:
         status_value = _timeline_status_for_event(event)
         if status_value is None:
@@ -233,24 +236,30 @@ async def _build_project_timeline(
         actor = actors_by_id.get(event.actor_id) if event.actor_id is not None else None
         snapshot = _parse_snapshot(event.snapshot_json)
         reason = snapshot.get("review_reason")
+        last_event_actor_id = event.actor_id
+        last_event_actor_role = actor.role.value if actor is not None else "system"
         timeline.append(
             _build_timeline_entry(
                 status_value=status_value,
                 actor_id=event.actor_id,
-                actor_role=actor.role.value if actor is not None else "system",
+                actor_role=last_event_actor_role,
                 timestamp=event.occurred_at,
                 reason=reason if status_value in (ProjectStatusEnum.needs_info.value, ProjectStatusEnum.rejected.value) else None,
             )
         )
 
     if not timeline or timeline[-1].status != project.status.value:
-        actor = actors_by_id.get(project.supplier_id)
         fallback_uses_supplier = project.status in (ProjectStatusEnum.draft, ProjectStatusEnum.submitted)
+        supplier = actors_by_id.get(project.supplier_id)
         timeline.append(
             _build_timeline_entry(
                 status_value=project.status.value,
-                actor_id=project.supplier_id if actor is not None and fallback_uses_supplier else None,
-                actor_role=actor.role.value if actor is not None and fallback_uses_supplier else "system",
+                actor_id=project.supplier_id if fallback_uses_supplier else last_event_actor_id,
+                actor_role=(
+                    supplier.role.value
+                    if supplier is not None and fallback_uses_supplier
+                    else last_event_actor_role
+                ),
                 timestamp=_project_status_timestamp(project),
                 reason=project.review_reason if project.status in (ProjectStatusEnum.needs_info, ProjectStatusEnum.rejected) else None,
             )
@@ -390,7 +399,7 @@ async def get_project_timeline(
             project_id=str(project.id),
             current_status=project.status.value,
             submitted_at=project.submitted_at.isoformat(),
-            message=_submission_receipt_message(project),
+            message=_submission_receipt_message(),
         )
         if project.submitted_at is not None
         else None
