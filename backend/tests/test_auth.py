@@ -14,7 +14,11 @@ TRD sections 4, 5.1, 7, 8.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
+from app.core.security import create_access_token
+from app.db.models import RoleEnum, User, UserStatusEnum
 
 pytestmark = pytest.mark.asyncio
 
@@ -52,6 +56,22 @@ async def _register_and_verify(client, user=None):
 
 def auth(token: str) -> dict:
     return {"Authorization": BEARER + token}
+
+
+async def _create_user_with_role(db, *, email: str, role_name: str):
+    role = RoleEnum(role_name)
+    user = User(
+        email=email,
+        password_hash="not-used-in-tests",
+        role=role,
+        status=UserStatusEnum.active,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +222,21 @@ async def test_supplier_endpoint_rejects_wrong_role(client):
     )
     # User not in DB → 401 (token valid but user gone), OR role mismatch → 403
     assert r.status_code in (401, 403)
+
+
+@pytest.mark.parametrize("role_name", ["buyer", "operator", "admin"])
+async def test_supplier_and_project_endpoints_reject_non_supplier_roles(client_and_db, role_name):
+    client, db = client_and_db
+    user = await _create_user_with_role(db, email=f"{role_name}@example.com", role_name=role_name)
+    token = create_access_token({"sub": str(user.id), "role": role_name})
+
+    profile_response = await client.get(f"{BASE}/supplier/profile", headers=auth(token))
+    assert profile_response.status_code == 403
+    assert profile_response.json()["detail"] == "Supplier role required"
+
+    projects_response = await client.get(f"{BASE}/projects", headers=auth(token))
+    assert projects_response.status_code == 403
+    assert projects_response.json()["detail"] == "Supplier role required"
 
 
 # ---------------------------------------------------------------------------

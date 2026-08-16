@@ -40,6 +40,7 @@ class ProjectCreateRequest(BaseModel):
     expected_volume: Optional[float] = Field(None, gt=0, description="Expected annual CO2e tonnes")
 
     model_config = {
+        "extra": "forbid",
         "json_schema_extra": {
             "example": {
                 "title": "Rice Field Carbon Sequestration",
@@ -62,6 +63,7 @@ class ProjectUpdateRequest(BaseModel):
     expected_volume: Optional[float] = Field(None, gt=0, description="Expected annual CO2e tonnes")
 
     model_config = {
+        "extra": "forbid",
         "json_schema_extra": {
             "example": {
                 "geography": "Haryana, India",
