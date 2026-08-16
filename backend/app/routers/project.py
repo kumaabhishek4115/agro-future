@@ -308,13 +308,15 @@ async def submit_project(
     if project.expected_volume is None:
         missing_fields.append("expected_volume")
     result = await db.execute(
-        select(ProjectDocument.doc_type).where(ProjectDocument.project_id == project.id)
+        select(ProjectDocument.doc_type)
+        .where(ProjectDocument.project_id == project.id)
+        .distinct()
     )
-    present_doc_types = set(result.scalars())
+    present_doc_types = {doc_type.value for doc_type in result.scalars()}
     missing_document_types = [
         doc_type.value
         for doc_type in REQUIRED_DOCUMENT_TYPES
-        if DocumentTypeEnum(doc_type.value) not in present_doc_types
+        if doc_type.value not in present_doc_types
     ]
     validation_errors = []
     if missing_fields:

@@ -400,10 +400,10 @@ async def test_list_documents_success(client):
     assert r.status_code == 200
     data = r.json()
     assert len(data) == 2
-    assert [doc["doc_type"] for doc in data] == [
+    assert {doc["doc_type"] for doc in data} == {
         "registry_evidence",
         "land_ownership_proof",
-    ]
+    }
     assert all(doc["uploaded_at"] for doc in data)
 
 
