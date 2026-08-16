@@ -97,6 +97,9 @@ class AuditEventEnum(str, _enum.Enum):
     approved = "approved"
     rejected = "rejected"
     updated = "updated"
+    document_uploaded = "document_uploaded"
+    offer_accepted = "offer_accepted"
+    offer_rejected = "offer_rejected"
 
 
 # ---------------------------------------------------------------------------
@@ -361,9 +364,19 @@ class ProjectAuditEvent(Base):
     actor_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
+    # Role of the actor at the time of the event (e.g. "supplier", "operator")
+    actor_role: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     event: Mapped[AuditEventEnum] = mapped_column(
         Enum(AuditEventEnum, name="audit_event_enum"), nullable=False
     )
+    # Type of the primary resource affected (e.g. "project", "document")
+    resource_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    # ID of the primary resource affected (defaults to project_id for project events)
+    resource_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    # Optional reason or metadata for this event (e.g. reviewer feedback, rejection reason)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # JSON snapshot of project fields at the time of this event (for audit history)
     snapshot_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(

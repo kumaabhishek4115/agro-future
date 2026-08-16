@@ -117,6 +117,28 @@ class ProjectTimelineResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Audit log schemas (operator-facing)
+# ---------------------------------------------------------------------------
+
+class AuditEventResponse(BaseModel):
+    """Full representation of a single audit event for operator queries."""
+    id: str
+    project_id: str
+    event_type: str
+    actor_id: Optional[str]
+    actor_role: Optional[str]
+    resource_type: Optional[str]
+    resource_id: Optional[str]
+    reason: Optional[str]
+    timestamp: str
+
+
+class AuditLogResponse(BaseModel):
+    total: int
+    events: list[AuditEventResponse]
+
+
+# ---------------------------------------------------------------------------
 # Document schemas
 # ---------------------------------------------------------------------------
 
