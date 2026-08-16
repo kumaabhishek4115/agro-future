@@ -92,6 +92,7 @@ class AuditEventEnum(str, _enum.Enum):
     created = "created"
     submitted = "submitted"
     resubmitted = "resubmitted"
+    in_review = "in_review"
     needs_info = "needs_info"
     approved = "approved"
     rejected = "rejected"
