@@ -1,11 +1,12 @@
 """
-Project intake endpoints (Epic 2).
+Project intake endpoints (Epic 2 & 3).
 
 POST   /api/v1/projects                          – create a draft project
 GET    /api/v1/projects                          – list my projects
 GET    /api/v1/projects/{project_id}             – get a project
-PATCH  /api/v1/projects/{project_id}             – update a draft project
+PATCH  /api/v1/projects/{project_id}             – update a draft or needs_info project
 POST   /api/v1/projects/{project_id}/submit      – submit a draft project
+POST   /api/v1/projects/{project_id}/resubmit    – resubmit a needs_info project
 POST   /api/v1/projects/{project_id}/documents   – upload a supporting document
 GET    /api/v1/projects/{project_id}/documents   – list project documents
 
@@ -18,6 +19,7 @@ TRD sections 5.1, 5.2, 6, 7.
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,8 +31,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import SupplierUser
 from app.db.models import (
+    AuditEventEnum,
     DocumentTypeEnum,
     Project,
+    ProjectAuditEvent,
     ProjectDocument,
     ProjectStatusEnum,
 )
@@ -80,10 +84,44 @@ def _project_to_response(project: Project) -> ProjectResponse:
         baseline=project.baseline,
         expected_volume=project.expected_volume,
         status=project.status.value,
+        review_reason=project.review_reason,
         submitted_at=project.submitted_at.isoformat() if project.submitted_at else None,
         created_at=project.created_at.isoformat(),
         updated_at=project.updated_at.isoformat(),
     )
+
+
+def _project_snapshot(project: Project) -> str:
+    """Return a JSON string capturing the current field values of a project."""
+    return json.dumps(
+        {
+            "title": project.title,
+            "description": project.description,
+            "methodology": project.methodology,
+            "geography": project.geography,
+            "baseline": project.baseline,
+            "expected_volume": project.expected_volume,
+            "status": project.status.value,
+            "review_reason": project.review_reason,
+        }
+    )
+
+
+async def _append_audit_event(
+    db: AsyncSession,
+    project: Project,
+    event: AuditEventEnum,
+    actor_id: uuid.UUID | None = None,
+) -> None:
+    """Append an immutable audit event with a field snapshot."""
+    evt = ProjectAuditEvent(
+        project_id=project.id,
+        actor_id=actor_id,
+        event=event,
+        snapshot_json=_project_snapshot(project),
+        occurred_at=datetime.now(timezone.utc),
+    )
+    db.add(evt)
 
 
 def _doc_to_response(doc: ProjectDocument) -> DocumentResponse:
@@ -158,6 +196,8 @@ async def create_project(
         updated_at=now,
     )
     db.add(project)
+    await db.flush()  # populate project.id before creating the audit event
+    await _append_audit_event(db, project, AuditEventEnum.created, current_user.id)
     await db.commit()
     await db.refresh(project)
     return _project_to_response(project)
@@ -239,10 +279,10 @@ async def update_project(
     TRD §5.1 – "Farmers can save a draft and return to complete later."
     """
     project = await _get_owned_project(project_id, current_user, db)
-    if project.status != ProjectStatusEnum.draft:
+    if project.status not in (ProjectStatusEnum.draft, ProjectStatusEnum.needs_info):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Only draft projects can be updated.",
+            detail="Only draft or needs_info projects can be updated.",
         )
     if body.title is not None:
         project.title = body.title
@@ -257,6 +297,7 @@ async def update_project(
     if body.expected_volume is not None:
         project.expected_volume = body.expected_volume
     project.updated_at = datetime.now(timezone.utc)
+    await _append_audit_event(db, project, AuditEventEnum.updated, current_user.id)
     await db.commit()
     await db.refresh(project)
     return _project_to_response(project)
@@ -337,6 +378,7 @@ async def submit_project(
     project.status = ProjectStatusEnum.submitted
     project.submitted_at = now
     project.updated_at = now
+    await _append_audit_event(db, project, AuditEventEnum.submitted, current_user.id)
     await db.commit()
     await db.refresh(project)
     return _project_to_response(project)
@@ -382,10 +424,10 @@ async def upload_document(
                 land ownership proofs."
     """
     project = await _get_owned_project(project_id, current_user, db)
-    if project.status != ProjectStatusEnum.draft:
+    if project.status not in (ProjectStatusEnum.draft, ProjectStatusEnum.needs_info):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Documents can only be added to draft projects.",
+            detail="Documents can only be added to draft or needs_info projects.",
         )
 
     content_type = (file.content_type or "").split(";", 1)[0].strip().lower()
@@ -453,3 +495,92 @@ async def list_documents(
     )
     docs = result.scalars().all()
     return [_doc_to_response(d) for d in docs]
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/projects/{project_id}/resubmit  – resubmit a needs_info project
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/{project_id}/resubmit",
+    response_model=ProjectResponse,
+    summary="Resubmit a needs_info project for operator review",
+    responses={
+        **PROTECTED_RESPONSES,
+        404: {"model": ErrorResponse, "description": "Project not found"},
+        409: {"model": ErrorResponse, "description": "Project is not in needs_info state"},
+        422: {"model": ErrorResponse, "description": "Validation error"},
+    },
+)
+async def resubmit_project(
+    project_id: uuid.UUID,
+    current_user: SupplierUser,
+    db: AsyncSession = Depends(get_db),
+) -> ProjectResponse:
+    """
+    Transition a project from **needs_info** → **submitted** (re-enters the
+    operator review queue).
+
+    Only projects currently in `needs_info` state may be resubmitted.
+    Projects in `approved`, `rejected`, or `in_review` state cannot be
+    resubmitted.  A snapshot of the project fields is appended to the audit
+    log with event = `resubmitted` so the full history is preserved.
+
+    TRD §5.2 – "Resubmission transitions the project back to submitted /
+                in_review state."
+    TRD §5.2 – "Resubmission should create a new audit event with
+                actor = farmer, event = resubmitted."
+    """
+    project = await _get_owned_project(project_id, current_user, db)
+    if project.status != ProjectStatusEnum.needs_info:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Only projects in needs_info state can be resubmitted. "
+                f"Current status: {project.status.value}."
+            ),
+        )
+    # Validate that all required fields are still present.
+    missing_fields = []
+    if project.methodology is None:
+        missing_fields.append("methodology")
+    if project.geography is None:
+        missing_fields.append("geography")
+    if project.baseline is None:
+        missing_fields.append("baseline")
+    if project.expected_volume is None:
+        missing_fields.append("expected_volume")
+    result = await db.execute(
+        select(ProjectDocument.doc_type)
+        .where(ProjectDocument.project_id == project.id)
+        .distinct()
+    )
+    present_doc_types = {doc_type.value for doc_type in result.scalars()}
+    missing_document_types = [
+        doc_type.value
+        for doc_type in REQUIRED_DOCUMENT_TYPES
+        if doc_type.value not in present_doc_types
+    ]
+    validation_errors = []
+    if missing_fields:
+        validation_errors.append(
+            f"required fields are missing: {', '.join(missing_fields)}"
+        )
+    if missing_document_types:
+        validation_errors.append(
+            "required document types are missing: "
+            + ", ".join(missing_document_types)
+        )
+    if validation_errors:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Cannot resubmit: {'; '.join(validation_errors)}.",
+        )
+    now = datetime.now(timezone.utc)
+    project.status = ProjectStatusEnum.submitted
+    project.review_reason = None  # clear prior feedback on resubmission
+    project.updated_at = now
+    await _append_audit_event(db, project, AuditEventEnum.resubmitted, current_user.id)
+    await db.commit()
+    await db.refresh(project)
+    return _project_to_response(project)

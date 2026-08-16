@@ -80,6 +80,7 @@ class ProjectResponse(BaseModel):
     baseline: Optional[str]
     expected_volume: Optional[float]
     status: str
+    review_reason: Optional[str]
     submitted_at: Optional[str]
     created_at: str
     updated_at: str
