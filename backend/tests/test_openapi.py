@@ -22,6 +22,7 @@ EXPECTED_OPERATIONS = {
     ("/api/v1/projects", "post"),
     ("/api/v1/projects", "get"),
     ("/api/v1/projects/{project_id}", "get"),
+    ("/api/v1/projects/{project_id}/timeline", "get"),
     ("/api/v1/projects/{project_id}", "patch"),
     ("/api/v1/projects/{project_id}/resubmit", "post"),
     ("/api/v1/projects/{project_id}/submit", "post"),

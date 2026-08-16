@@ -333,3 +333,16 @@ async def test_resubmit_unauthenticated(client_and_db):
 
     r = await client.post(f"{BASE}/projects/{project_id}/resubmit")
     assert r.status_code == 403
+
+
+async def test_resubmit_cross_user_forbidden(client_and_db):
+    client, db = client_and_db
+    owner_token = await _register_and_verify(client, {"email": "resubmit_owner@example.com", "password": "securepass123"})
+    attacker_token = await _register_and_verify(client, {"email": "resubmit_attacker@example.com", "password": "securepass123"})
+    submitted = await _create_and_submit_project(client, owner_token)
+    project_id = submitted["id"]
+    await _force_project_status(db, project_id, ProjectStatusEnum.needs_info, reason="Needs more detail.")
+
+    r = await client.post(f"{BASE}/projects/{project_id}/resubmit", headers=auth(attacker_token))
+    assert r.status_code == 403
+    assert r.json()["detail"] == "Forbidden: cannot access another supplier's project."

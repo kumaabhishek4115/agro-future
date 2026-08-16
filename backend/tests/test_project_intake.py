@@ -217,7 +217,8 @@ async def test_get_project_cross_user_forbidden(client):
     token2 = await _register_and_verify(client, {"email": "c_b@example.com", "password": "pass12345"})
     project = await _create_project(client, token1)
     r = await client.get(f"{BASE}/projects/{project['id']}", headers=auth(token2))
-    assert r.status_code == 404
+    assert r.status_code == 403
+    assert r.json()["detail"] == "Forbidden: cannot access another supplier's project."
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +269,19 @@ async def test_update_submitted_project_rejected(client):
     assert r.status_code == 409
 
 
+async def test_update_project_cross_user_forbidden(client):
+    token1 = await _register_and_verify(client, {"email": "patch_a@example.com", "password": "pass12345"})
+    token2 = await _register_and_verify(client, {"email": "patch_b@example.com", "password": "pass12345"})
+    project = await _create_project(client, token1)
+    r = await client.patch(
+        f"{BASE}/projects/{project['id']}",
+        json={"geography": "Elsewhere"},
+        headers=auth(token2),
+    )
+    assert r.status_code == 403
+    assert r.json()["detail"] == "Forbidden: cannot access another supplier's project."
+
+
 # ---------------------------------------------------------------------------
 # Submission
 # ---------------------------------------------------------------------------
@@ -295,6 +309,15 @@ async def test_submit_already_submitted(client):
         f"{BASE}/projects/{project['id']}/submit", headers=auth(token)
     )
     assert r.status_code == 409
+
+
+async def test_submit_project_cross_user_forbidden(client):
+    token1 = await _register_and_verify(client, {"email": "submit_a@example.com", "password": "pass12345"})
+    token2 = await _register_and_verify(client, {"email": "submit_b@example.com", "password": "pass12345"})
+    project = await _create_submittable_project(client, token1)
+    r = await client.post(f"{BASE}/projects/{project['id']}/submit", headers=auth(token2))
+    assert r.status_code == 403
+    assert r.json()["detail"] == "Forbidden: cannot access another supplier's project."
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +452,8 @@ async def test_upload_document_cross_user_forbidden(client):
         filename="f.pdf",
         content=b"x",
     )
-    assert r.status_code == 404
+    assert r.status_code == 403
+    assert r.json()["detail"] == "Forbidden: cannot access another supplier's project."
 
 
 async def test_list_documents_cross_user_forbidden(client):
@@ -437,7 +461,31 @@ async def test_list_documents_cross_user_forbidden(client):
     token2 = await _register_and_verify(client, {"email": "d_d@example.com", "password": "pass12345"})
     project = await _create_project(client, token1)
     r = await client.get(f"{BASE}/projects/{project['id']}/documents", headers=auth(token2))
-    assert r.status_code == 404
+    assert r.status_code == 403
+    assert r.json()["detail"] == "Forbidden: cannot access another supplier's project."
+
+
+async def test_create_project_rejects_client_supplied_supplier_id(client):
+    token = await _register_and_verify(client, {"email": "body_owner_create@example.com", "password": "pass12345"})
+    r = await client.post(
+        f"{BASE}/projects",
+        json={**VALID_PROJECT, "supplier_id": str(uuid.uuid4())},
+        headers=auth(token),
+    )
+    assert r.status_code == 422
+    assert "supplier_id" in r.text
+
+
+async def test_update_project_rejects_client_supplied_supplier_id(client):
+    token = await _register_and_verify(client, {"email": "body_owner_update@example.com", "password": "pass12345"})
+    project = await _create_project(client, token)
+    r = await client.patch(
+        f"{BASE}/projects/{project['id']}",
+        json={"geography": "Karnataka, India", "supplier_id": str(uuid.uuid4())},
+        headers=auth(token),
+    )
+    assert r.status_code == 422
+    assert "supplier_id" in r.text
 
 
 # ===========================================================================

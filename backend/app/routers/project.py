@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.authorization import ensure_supplier_owns_resource
 from app.core.dependencies import SupplierUser
 from app.db.models import (
     AuditEventEnum,
@@ -57,7 +58,10 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 
 PROTECTED_RESPONSES = {
     401: {"model": ErrorResponse, "description": "Missing, invalid or expired bearer token"},
-    403: {"model": ErrorResponse, "description": "Supplier role required"},
+    403: {
+        "model": ErrorResponse,
+        "description": "Supplier role required or resource belongs to another supplier",
+    },
 }
 
 # Maximum uploaded file size: 20 MB
@@ -285,19 +289,19 @@ async def _get_owned_project(
     current_user: SupplierUser,
     db: AsyncSession,
 ) -> Project:
-    """Fetch a project belonging to the authenticated supplier; raise 404 if absent."""
-    result = await db.execute(
-        select(Project).where(
-            Project.id == project_id,
-            Project.supplier_id == current_user.id,
-        )
-    )
+    """Fetch a project and enforce supplier ownership."""
+    result = await db.execute(select(Project).where(Project.id == project_id))
     project = result.scalar_one_or_none()
     if project is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found.",
         )
+    ensure_supplier_owns_resource(
+        resource_owner_id=project.supplier_id,
+        current_user_id=current_user.id,
+        resource_name="project",
+    )
     return project
 
 

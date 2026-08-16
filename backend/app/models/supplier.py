@@ -31,6 +31,7 @@ class SupplierProfileRequest(BaseModel):
     )
 
     model_config = {
+        "extra": "forbid",
         "json_schema_extra": {
             "example": {
                 "geography": "Punjab, India",

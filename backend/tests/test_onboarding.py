@@ -18,6 +18,8 @@ TRD acceptance criteria:
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 pytestmark = pytest.mark.asyncio
@@ -302,3 +304,14 @@ async def test_profile_requires_supplier_role(client):
     r = await client.get(f"{BASE}/supplier/profile", headers=auth(fake_token))
     # _get_current_user queries DB – user not found → 401
     assert r.status_code == 401
+
+
+async def test_profile_rejects_client_supplied_user_id(client):
+    token = await _register_and_verify(client, {"email": "profile_owner_check@example.com", "password": "securepass123"})
+    r = await client.post(
+        f"{BASE}/supplier/profile",
+        json={**VALID_PROFILE, "user_id": str(uuid.uuid4())},
+        headers=auth(token),
+    )
+    assert r.status_code == 422
+    assert "user_id" in r.text

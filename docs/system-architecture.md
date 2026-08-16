@@ -769,12 +769,12 @@ Context Check (org/tenant isolation)
 
 **Permission Matrix**:
 ```
-Role          | Projects | Reviews | Offers | Orders | Inventory | Audit Logs
-─────────────────────────────────────────────────────────────────────────────
-Supplier      | RW(own)  | R(own)  | R      | R      | R(own)    | R(own)
-Buyer         | -        | -       | -      | RW     | R         | R(own)
-Operator      | R        | RWD     | RWD    | R      | RWD       | R
-Admin         | RWD      | RWD     | RWD    | R      | RWD       | RWD
+Role          | Profile | Projects | Documents | Offers | Contracts | Payouts | Buyer/Operator/Admin APIs
+───────────────────────────────────────────────────────────────────────────────────────────────────────────
+Supplier      | RW(own) | RW(own)  | RW(own)   | R(own) | R(own)    | RW(own) | -
+Buyer         | -       | -        | -         | RW     | RW        | -       | Buyer only
+Operator      | -       | R        | R         | RWD    | RWD       | R       | Operator only
+Admin         | RWD     | RWD      | RWD       | RWD    | RWD       | RWD     | Admin only
 ```
 
 **Endpoint Protection**:
@@ -784,9 +784,10 @@ Every protected endpoint:
 2. Validate signature & expiry
 3. Check user.status == 'active'
 4. Verify action permission for role
-5. Check resource ownership
-6. Execute action
-7. Log to audit_logs
+5. Check resource ownership against the authenticated session user
+6. Reject client-supplied ownership fields (e.g. supplier_id/user_id) on farmer-facing writes
+7. Execute action
+8. Log to audit_logs
 ```
 
 ### 4.2 Data Encryption

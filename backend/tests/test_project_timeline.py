@@ -295,3 +295,16 @@ async def test_timeline_gracefully_handles_project_without_audit_history(client_
     assert len(data["timeline"]) == 1
     assert data["timeline"][0]["status"] == "submitted"
     assert data["timeline"][0]["actor_role"] == farmer.role.value
+
+
+async def test_timeline_cross_user_forbidden(client):
+    owner_token = await _register_and_verify(client, {"email": "timeline_owner@example.com", "password": "securepass123"})
+    attacker_token = await _register_and_verify(client, {"email": "timeline_attacker@example.com", "password": "securepass123"})
+    submitted = await _create_and_submit_project(client, owner_token)
+
+    response = await client.get(
+        f"{BASE}/projects/{submitted['id']}/timeline",
+        headers=auth(attacker_token),
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Forbidden: cannot access another supplier's project."
