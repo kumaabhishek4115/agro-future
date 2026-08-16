@@ -63,3 +63,41 @@ async def client() -> AsyncClient:
     # Teardown: restore overrides and close engine
     app.dependency_overrides.pop(get_db, None)
     await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def client_and_db():
+    """
+    Like `client` but also yields the raw AsyncSession so tests can inspect
+    or mutate the database directly (used by Epic 3 resubmission tests).
+    """
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        echo=False,
+    )
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(
+        bind=engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+    async def _override_get_db():
+        async with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
+
+    async with session_factory() as direct_session:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as ac:
+            yield ac, direct_session
+
+    app.dependency_overrides.pop(get_db, None)
+    await engine.dispose()

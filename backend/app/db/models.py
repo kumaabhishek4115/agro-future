@@ -1,17 +1,19 @@
 """
-SQLAlchemy ORM models for Epic 1 & 2.
+SQLAlchemy ORM models for Epic 1, 2 & 3.
 
 Entities modelled here mirror TRD §6:
   - users            (id, role, org_id, status)
   - supplier_profiles (user_id, farm metadata, payout metadata)
   - projects         (supplier_id, methodology, geography, status)
   - project_documents (project_id, type, storage_uri, checksum)
+  - project_audit_events (project_id, event, actor, snapshot_json)
 
 Relationships
 ─────────────
 User ──< SupplierProfile   (one-to-one; a supplier has exactly one profile)
 User ──< Project            (one-to-many; a supplier may have many projects)
 Project ──< ProjectDocument (one-to-many; a project may have many documents)
+Project ──< ProjectAuditEvent (one-to-many; audit trail for a project)
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -83,6 +86,16 @@ class DocumentTypeEnum(str, _enum.Enum):
     mrv_record = "mrv_record"
     land_ownership_proof = "land_ownership_proof"
     other = "other"
+
+
+class AuditEventEnum(str, _enum.Enum):
+    created = "created"
+    submitted = "submitted"
+    resubmitted = "resubmitted"
+    needs_info = "needs_info"
+    approved = "approved"
+    rejected = "rejected"
+    updated = "updated"
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +265,8 @@ class Project(Base):
     submitted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Reviewer feedback: populated when status transitions to needs_info or rejected.
+    review_reason: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_now
@@ -264,6 +279,10 @@ class Project(Base):
     supplier: Mapped[User] = relationship("User", back_populates="projects")
     documents: Mapped[list["ProjectDocument"]] = relationship(
         "ProjectDocument", back_populates="project", cascade="all, delete-orphan"
+    )
+    audit_events: Mapped[list["ProjectAuditEvent"]] = relationship(
+        "ProjectAuditEvent", back_populates="project", cascade="all, delete-orphan",
+        order_by="ProjectAuditEvent.occurred_at",
     )
 
     def __repr__(self) -> str:  # pragma: no cover
@@ -310,6 +329,51 @@ class ProjectDocument(Base):
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<ProjectDocument id={self.id} project_id={self.project_id} type={self.doc_type}>"
+
+
+# ---------------------------------------------------------------------------
+# project_audit_events
+# ---------------------------------------------------------------------------
+
+class ProjectAuditEvent(Base):
+    """
+    Append-only audit log for project lifecycle transitions and field updates.
+
+    Each edit or status change appends a new row that captures what happened,
+    who acted, and a JSON snapshot of the project fields at that point in time.
+
+    TRD §5.2 – "All prior versions … are preserved in history for audit purposes."
+    """
+
+    __tablename__ = "project_audit_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # The actor who triggered this event (e.g. farmer user-id, or "reviewer")
+    actor_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    event: Mapped[AuditEventEnum] = mapped_column(
+        Enum(AuditEventEnum, name="audit_event_enum"), nullable=False
+    )
+    # JSON snapshot of project fields at the time of this event (for audit history)
+    snapshot_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_now
+    )
+
+    # Relationships
+    project: Mapped[Project] = relationship("Project", back_populates="audit_events")
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return f"<ProjectAuditEvent id={self.id} project_id={self.project_id} event={self.event}>"
 
 
 # ---------------------------------------------------------------------------
